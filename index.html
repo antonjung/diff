@@ -171,7 +171,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.1.2'; // tool version: bump when the page changes
+  const VERSION = '1.1.4'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -622,7 +622,7 @@
             } else kids.push(run(t, { font: MONO, size: 18 }));
             const small = (x, o) => para([run(x, { font: MONO, size: 18, color: '656D76', ...(o || {}) })], { alignment: AlignmentType.RIGHT, spacing: { after: 0 } });
             rows.push(new TableRow({ cantSplit: true, children: [
-              cell([small(r.oldNo || '')], cols[0], { fill: bg }), cell([small(r.newNo || '')], cols[1], { fill: bg }),
+              cell([small(r.oldNo ? String(r.oldNo) : '')], cols[0], { fill: bg }), cell([small(r.newNo ? String(r.newNo) : '')], cols[1], { fill: bg }),
               cell([small(r.t === '=' ? '' : r.t === '-' ? '\u2212' : '+', { bold: true, color: r.t === '-' ? 'CF222E' : '1A7F37' })], cols[2], { fill: bg }),
               cell([para(kids, { spacing: { after: 0 } })], cols[3], { fill: bg })
             ] }));
