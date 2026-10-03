@@ -38,7 +38,9 @@
   .bar label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
   input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
   #report-wrap { display: none; margin: 8px 0 40px; }
-  #actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  #actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  #reasons .reason { height: 60px; margin: 2px 0 10px; padding: 8px 10px; }
+  #reasons .rname { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
   #status { color: var(--muted); }
   #report { background: #fff; color: #1f2328; border: 1px solid var(--border); border-radius: 6px; padding: 16px; overflow-x: auto; }
 </style>
@@ -62,13 +64,17 @@
   </div>
 
   <div id="report-wrap">
+    <div id="report"></div>
+    <section class="file" style="margin-top:16px">
+      <label class="reason-label" style="margin-top:0">Reasons for change <small style="font-weight:400;color:var(--muted)">&mdash; now that you've seen the diff</small></label>
+      <div id="reasons"></div>
+    </section>
     <div id="actions">
       <button id="copy-rich">Copy for change request</button>
       <button id="copy-md">Copy as Markdown</button>
       <button id="copy-patch">Copy as unified diff</button>
       <span id="status" role="status"></span>
     </div>
-    <div id="report"></div>
   </div>
 </main>
 
@@ -81,8 +87,6 @@
       <div class="panel"><label>After <small class="cb"></small></label>
         <textarea class="b" spellcheck="false" placeholder="Paste updated code here…"></textarea></div>
     </div>
-    <label class="reason-label">Reason for change</label>
-    <textarea class="reason" placeholder="Why is this change needed?"></textarea>
   </section>
 </template>
 
@@ -220,12 +224,12 @@
     return h;
   }
 
-  function reportHtml(files) {
+  function reportHtml(files, withReasons = true) {
     let h = '<div style="' + H + 'font-size:14px">';
     h += sect('File(s) changed') + '<ul style="margin:0 0 8px;padding-left:22px">' +
       files.map(f => '<li><strong>' + esc(nm(f)) + '</strong></li>').join('') + '</ul>';
     h += sect('What changed') + files.map(fileDiffHtml).join('');
-    h += sect('Reasons for change') + files.map(f =>
+    if (withReasons) h += sect('Reasons for change') + files.map(f =>
       '<p style="margin:0 0 8px;white-space:pre-wrap"><strong>' + esc(nm(f)) + '</strong>: ' + (f.reason ? esc(f.reason) : '<em>No reason given</em>') + '</p>').join('');
     return h + '</div>';
   }
@@ -286,11 +290,26 @@
       const q = c => card.querySelector(c).value;
       const rows = diffLines(split(q('.a')), split(q('.b')), ws);
       return {
-        name: card.querySelector('.name').textContent, reason: q('.reason').trim(), hunks: buildHunks(rows),
+        name: card.querySelector('.name').textContent, reason: '', hunks: buildHunks(rows),
         adds: rows.filter(r => r.t === '+').length, dels: rows.filter(r => r.t === '-').length
       };
     });
-    $('report').innerHTML = reportHtml(last);
+    const prev = {};
+    document.querySelectorAll('#reasons textarea').forEach(t => { prev[t.dataset.name] = t.value; });
+    $('report').innerHTML = reportHtml(last, false);
+    $('reasons').innerHTML = '';
+    last.forEach(f => {
+      const wrap = document.createElement('div');
+      const lab = document.createElement('div');
+      lab.className = 'rname'; lab.textContent = nm(f);
+      const ta = document.createElement('textarea');
+      ta.className = 'reason'; ta.dataset.name = f.name; ta.placeholder = 'Why is this change needed?';
+      ta.value = prev[f.name] || '';
+      f.reason = ta.value.trim();
+      ta.addEventListener('input', () => { f.reason = ta.value.trim(); });
+      wrap.append(lab, ta);
+      $('reasons').appendChild(wrap);
+    });
     $('report-wrap').style.display = 'block';
     $('status').textContent = '';
     $('report-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -319,15 +338,18 @@
         'text/plain': new Blob([markdownText(last)], { type: 'text/plain' })
       })]);
     } catch (e) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = reportHtml(last);
+      document.body.appendChild(tmp);
       const sel = getSelection(), range = document.createRange();
-      range.selectNodeContents($('report')); sel.removeAllRanges(); sel.addRange(range);
-      document.execCommand('copy'); sel.removeAllRanges();
+      range.selectNodeContents(tmp); sel.removeAllRanges(); sel.addRange(range);
+      document.execCommand('copy'); sel.removeAllRanges(); tmp.remove();
     }
     flash(msg);
   }
 
   $('go').onclick = generate;
-  $('clear').onclick = () => { $('list').value = ''; filesEl.innerHTML = ''; syncCards(); $('report-wrap').style.display = 'none'; last = null; };
+  $('clear').onclick = () => { $('list').value = ''; filesEl.innerHTML = ''; syncCards(); $('report-wrap').style.display = 'none'; $('reasons').innerHTML = ''; last = null; };
   $('copy-rich').onclick = copyRich;
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
