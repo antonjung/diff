@@ -274,8 +274,7 @@
 
   // One card per non-empty line in the file list; cards map to lines by position so typed content survives renames.
   function syncCards() {
-    const names = $('list').value.split(/?
-/).map(l => l.trim()).filter(Boolean);
+    const names = $('list').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     while (filesEl.children.length < names.length) addFile();
     while (filesEl.children.length > names.length) filesEl.lastElementChild.remove();
     names.forEach((n, i) => { filesEl.children[i].querySelector('.name').textContent = n; });
