@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change Request Diff</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1f2328; --muted: #656d76; --border: #d0d7de;
+    --accent: #0969da; --accent-text: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --panel: #161b22; --text: #e6edf3; --muted: #8b949e; --border: #30363d; --accent: #2f81f7; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header, main { max-width: 1400px; margin: 0 auto; padding: 0 16px; }
+  header { padding-top: 20px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  header p { margin: 0 0 16px; color: var(--muted); }
+  .file { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .file-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .file-head input { flex: 1; width: auto; font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+  .reason { width: 100%; height: 70px; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; font: inherit; white-space: pre-wrap; background: var(--bg); }
+  .reason-label { display: block; margin-top: 10px; font-weight: 600; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; }
+  .panel label { padding: 8px 12px; font-weight: 600; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; }
+  .panel label small { font-weight: 400; color: var(--muted); }
+  textarea { width: 100%; height: 240px; resize: vertical; border: 0; padding: 10px 12px; background: transparent; color: var(--text);
+    font: 12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; overflow: auto; tab-size: 4; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 14px 0; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:hover { filter: brightness(.95); }
+  .bar label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+  #report-wrap { display: none; margin: 8px 0 40px; }
+  #actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  #status { color: var(--muted); }
+  #report { background: #fff; color: #1f2328; border: 1px solid var(--border); border-radius: 6px; padding: 16px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Change Request Diff Report</h1>
+  <p>Add each changed file, paste its before and after code, give a reason, then generate one report for the change request.</p>
+</header>
+<main>
+  <div id="files"></div>
+
+  <div class="bar">
+    <button id="add">+ Add file</button>
+    <button class="primary" id="go">Generate diff report</button>
+    <button id="clear">Clear all</button>
+    <label><input type="checkbox" id="ws"> Ignore whitespace changes</label>
+  </div>
+
+  <div id="report-wrap">
+    <div id="actions">
+      <button id="copy-rich">Copy for change request</button>
+      <button id="copy-md">Copy as Markdown</button>
+      <button id="copy-patch">Copy as unified diff</button>
+      <span id="status" role="status"></span>
+    </div>
+    <div id="report"></div>
+  </div>
+</main>
+
+<template id="tpl">
+  <section class="file">
+    <div class="file-head">
+      <input type="text" class="name" placeholder="File name, e.g. src/app/config.js" spellcheck="false">
+      <button class="remove" title="Remove this file">Remove</button>
+    </div>
+    <div class="panels">
+      <div class="panel"><label>Before <small class="ca"></small></label>
+        <textarea class="a" spellcheck="false" placeholder="Paste original code here…"></textarea></div>
+      <div class="panel"><label>After <small class="cb"></small></label>
+        <textarea class="b" spellcheck="false" placeholder="Paste updated code here…"></textarea></div>
+    </div>
+    <label class="reason-label">Reason for change</label>
+    <textarea class="reason" placeholder="Why is this change needed?"></textarea>
+  </section>
+</template>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const CONTEXT = 3;
+  let last = null; // array of { name, reason, hunks, adds, dels }
+
+  const split = s => s === '' ? [] : s.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Myers O(ND) diff on two arrays of comparable keys. Returns ops: {t:'=' | '-' | '+', i, j}
+  function myers(a, b) {
+    const N = a.length, M = b.length, max = N + M;
+    if (max === 0) return [];
+    const off = max + 1, v = new Int32Array(2 * max + 3), trace = [];
+    let found = false;
+    for (let d = 0; d <= max && !found; d++) {
+      trace.push(v.slice());
+      for (let k = -d; k <= d; k += 2) {
+        let x = (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) ? v[off + k + 1] : v[off + k - 1] + 1;
+        let y = x - k;
+        while (x < N && y < M && a[x] === b[y]) { x++; y++; }
+        v[off + k] = x;
+        if (x >= N && y >= M) { found = true; break; }
+      }
+    }
+    const ops = [];
+    let x = N, y = M;
+    for (let d = trace.length - 1; d >= 0; d--) {
+      const vv = trace[d], k = x - y;
+      const pk = (k === -d || (k !== d && vv[off + k - 1] < vv[off + k + 1])) ? k + 1 : k - 1;
+      const px = vv[off + pk], py = px - pk;
+      while (x > px && y > py) { x--; y--; ops.push({ t: '=', i: x, j: y }); }
+      if (d > 0) {
+        if (x === px) { y--; ops.push({ t: '+', i: x, j: y }); }
+        else { x--; ops.push({ t: '-', i: x, j: y }); }
+      }
+    }
+    return ops.reverse();
+  }
+
+  function diffLines(A, B, ignoreWs) {
+    const norm = s => ignoreWs ? s.trim().replace(/\s+/g, ' ') : s;
+    const ka = A.map(norm), kb = B.map(norm);
+    let s = 0;
+    while (s < ka.length && s < kb.length && ka[s] === kb[s]) s++;
+    let ea = ka.length, eb = kb.length;
+    while (ea > s && eb > s && ka[ea - 1] === kb[eb - 1]) { ea--; eb--; }
+    const ops = [];
+    for (let i = 0; i < s; i++) ops.push({ t: '=', i, j: i });
+    for (const o of myers(ka.slice(s, ea), kb.slice(s, eb))) ops.push({ t: o.t, i: o.i + s, j: o.j + s });
+    for (let i = ea, j = eb; i < ka.length; i++, j++) ops.push({ t: '=', i, j });
+    return ops.map(o => ({
+      t: o.t, oldNo: o.t === '+' ? null : o.i + 1, newNo: o.t === '-' ? null : o.j + 1,
+      text: o.t === '+' ? B[o.j] : A[o.i]
+    }));
+  }
+
+  // Group rows into hunks with surrounding context, and compute intra-line highlights for paired -/+ lines.
+  function buildHunks(rows) {
+    const idx = [];
+    rows.forEach((r, i) => { if (r.t !== '=') idx.push(i); });
+    if (!idx.length) return [];
+    const ranges = [];
+    for (const i of idx) {
+      const s = Math.max(0, i - CONTEXT), e = Math.min(rows.length - 1, i + CONTEXT);
+      if (ranges.length && s <= ranges[ranges.length - 1][1] + 1) ranges[ranges.length - 1][1] = e;
+      else ranges.push([s, e]);
+    }
+    return ranges.map(([s, e]) => {
+      const rs = rows.slice(s, e + 1).map(r => ({ ...r }));
+      pairHighlights(rs);
+      const first = rs.find(r => r.oldNo), firstNew = rs.find(r => r.newNo);
+      return {
+        rows: rs,
+        oldStart: first ? first.oldNo : 0, oldLen: rs.filter(r => r.oldNo).length,
+        newStart: firstNew ? firstNew.newNo : 0, newLen: rs.filter(r => r.newNo).length
+      };
+    });
+  }
+
+  function pairHighlights(rs) {
+    for (let i = 0; i < rs.length;) {
+      if (rs[i].t !== '-') { i++; continue; }
+      let d = i; while (d < rs.length && rs[d].t === '-') d++;
+      let a = d; while (a < rs.length && rs[a].t === '+') a++;
+      const n = Math.min(d - i, a - d);
+      for (let k = 0; k < n; k++) {
+        const o = rs[i + k], w = rs[d + k];
+        let p = 0; while (p < o.text.length && p < w.text.length && o.text[p] === w.text[p]) p++;
+        let q = 0; while (q < o.text.length - p && q < w.text.length - p && o.text[o.text.length - 1 - q] === w.text[w.text.length - 1 - q]) q++;
+        o.hl = [p, o.text.length - q]; w.hl = [p, w.text.length - q];
+      }
+      i = a;
+    }
+  }
+
+  const ST = {
+    wrap: 'font-family:Consolas,Menlo,monospace;font-size:12px;border-collapse:collapse;width:100%;border:1px solid #d0d7de;margin:0 0 14px',
+    hdr: 'background:#ddf4ff;color:#0550ae;padding:3px 8px;text-align:left;font-weight:normal',
+    num: 'width:1%;min-width:40px;padding:0 8px;text-align:right;color:#656d76;vertical-align:top;user-select:none;white-space:nowrap',
+    code: 'padding:0 8px;white-space:pre-wrap;word-break:break-all;vertical-align:top',
+    '=': 'background:#ffffff', '-': 'background:#ffebe9', '+': 'background:#dafbe1',
+    hlDel: 'background:#ff818266', hlAdd: 'background:#4ac26b66'
+  };
+
+  function codeHtml(r) {
+    if (!r.hl || r.hl[0] === r.hl[1]) return esc(r.text);
+    const [s, e] = r.hl, st = r.t === '-' ? ST.hlDel : ST.hlAdd;
+    return esc(r.text.slice(0, s)) + '<span style="' + st + '">' + esc(r.text.slice(s, e)) + '</span>' + esc(r.text.slice(e));
+  }
+
+  const H = 'font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1f2328;';
+  const sect = t => '<h2 style="' + H + 'font-size:18px;margin:18px 0 8px">' + t + '</h2>';
+  const nm = f => f.name || '(unnamed file)';
+
+  function fileDiffHtml(f) {
+    let h = '<p style="' + H + 'margin:10px 0 6px"><strong>' + esc(nm(f)) + '</strong>';
+    if (!f.hunks.length) return h + ' &mdash; no differences found.</p>';
+    h += ' &mdash; <span style="color:#1a7f37"><strong>+' + f.adds + '</strong></span> <span style="color:#cf222e"><strong>−' + f.dels + '</strong></span></p>';
+    f.hunks.forEach((hk, n) => {
+      h += '<table style="' + ST.wrap + '"><thead><tr><th colspan="4" style="' + ST.hdr + '">Change ' + (n + 1) +
+        ' &mdash; before line ' + hk.oldStart + ', after line ' + hk.newStart + '</th></tr></thead><tbody>';
+      for (const r of hk.rows) {
+        const sign = r.t === '=' ? ' ' : r.t === '-' ? '−' : '+';
+        const sc = r.t === '-' ? 'color:#cf222e;' : r.t === '+' ? 'color:#1a7f37;' : 'color:#656d76;';
+        h += '<tr style="' + ST[r.t] + '"><td style="' + ST.num + '">' + (r.oldNo || '') + '</td><td style="' + ST.num + '">' + (r.newNo || '') +
+          '</td><td style="width:1%;padding:0 4px;' + sc + 'font-weight:bold;vertical-align:top">' + sign +
+          '</td><td style="' + ST.code + '">' + codeHtml(r) + '</td></tr>';
+      }
+      h += '</tbody></table>';
+    });
+    return h;
+  }
+
+  function reportHtml(files) {
+    let h = '<div style="' + H + 'font-size:14px">';
+    h += sect('File(s) changed') + '<ul style="margin:0 0 8px;padding-left:22px">' +
+      files.map(f => '<li><strong>' + esc(nm(f)) + '</strong></li>').join('') + '</ul>';
+    h += sect('What changed') + files.map(fileDiffHtml).join('');
+    h += sect('Reasons for change') + files.map(f =>
+      '<p style="margin:0 0 8px;white-space:pre-wrap"><strong>' + esc(nm(f)) + '</strong>: ' + (f.reason ? esc(f.reason) : '<em>No reason given</em>') + '</p>').join('');
+    return h + '</div>';
+  }
+
+  const rowText = r => (r.t === '=' ? ' ' : r.t) + r.text;
+
+  function patchText(files) {
+    return files.filter(f => f.hunks.length).map(f => {
+      const lines = ['--- a/' + nm(f), '+++ b/' + nm(f)];
+      f.hunks.forEach(hk => {
+        lines.push('@@ -' + hk.oldStart + ',' + hk.oldLen + ' +' + hk.newStart + ',' + hk.newLen + ' @@');
+        hk.rows.forEach(r => lines.push(rowText(r)));
+      });
+      return lines.join('\n');
+    }).join('\n') + '\n';
+  }
+
+  function markdownText(files) {
+    let md = '## File(s) changed\n\n' + files.map(f => '- **' + nm(f) + '**').join('\n') + '\n\n## What changed\n\n';
+    files.forEach(f => {
+      md += '**' + nm(f) + '**' + (f.hunks.length ? ' (+' + f.adds + ' −' + f.dels + ')' : ' — no differences found') + '\n\n';
+      f.hunks.forEach((hk, n) => {
+        md += 'Change ' + (n + 1) + ' — before line ' + hk.oldStart + ', after line ' + hk.newStart +
+          '\n\n```diff\n' + hk.rows.map(rowText).join('\n') + '\n```\n\n';
+      });
+    });
+    md += '## Reasons for change\n\n' + files.map(f => '**' + nm(f) + '**: ' + (f.reason || '_No reason given_')).join('\n\n');
+    return md + '\n';
+  }
+
+  const filesEl = $('files');
+
+  function addFile() {
+    const card = $('tpl').content.firstElementChild.cloneNode(true);
+    const q = c => card.querySelector(c);
+    const count = () => {
+      q('.ca').textContent = split(q('.a').value).length + ' lines';
+      q('.cb').textContent = split(q('.b').value).length + ' lines';
+    };
+    q('.a').addEventListener('input', count);
+    q('.b').addEventListener('input', count);
+    q('.remove').onclick = () => { card.remove(); if (!filesEl.children.length) addFile(); };
+    count();
+    filesEl.appendChild(card);
+    return card;
+  }
+
+  function generate() {
+    const ws = $('ws').checked;
+    last = [...filesEl.children].map(card => {
+      const q = c => card.querySelector(c).value;
+      const rows = diffLines(split(q('.a')), split(q('.b')), ws);
+      return {
+        name: q('.name').trim(), reason: q('.reason').trim(), hunks: buildHunks(rows),
+        adds: rows.filter(r => r.t === '+').length, dels: rows.filter(r => r.t === '-').length
+      };
+    });
+    $('report').innerHTML = reportHtml(last);
+    $('report-wrap').style.display = 'block';
+    $('status').textContent = '';
+    $('report-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function flash(msg) {
+    $('status').textContent = msg;
+    setTimeout(() => { if ($('status').textContent === msg) $('status').textContent = ''; }, 2500);
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {
+      const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+      document.execCommand('copy'); t.remove();
+    }
+    flash('Copied');
+  }
+
+  async function copyRich() {
+    if (!last) return;
+    const msg = 'Copied — paste into your change request';
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([reportHtml(last)], { type: 'text/html' }),
+        'text/plain': new Blob([markdownText(last)], { type: 'text/plain' })
+      })]);
+    } catch (e) {
+      const sel = getSelection(), range = document.createRange();
+      range.selectNodeContents($('report')); sel.removeAllRanges(); sel.addRange(range);
+      document.execCommand('copy'); sel.removeAllRanges();
+    }
+    flash(msg);
+  }
+
+  $('go').onclick = generate;
+  $('add').onclick = () => addFile().querySelector('.name').focus();
+  $('clear').onclick = () => { filesEl.innerHTML = ''; addFile(); $('report-wrap').style.display = 'none'; last = null; };
+  $('copy-rich').onclick = copyRich;
+  $('copy-md').onclick = () => last && copyText(markdownText(last));
+  $('copy-patch').onclick = () => last && copyText(patchText(last));
+  addFile();
+})();
+</script>
+</body>
+</html>
