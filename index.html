@@ -68,7 +68,7 @@
       <label class="field"><span>Environment changed</span>
         <input type="text" id="d-env" list="envs" placeholder="Live / Production" autocomplete="off">
         <datalist id="envs"><option value="Live"><option value="Production"></datalist></label>
-      <label class="field"><span>Changed by</span><input type="text" id="d-by" autocomplete="off"></label>
+      <label class="field"><span>Changed by</span><input type="text" id="d-by" value="Anton Jungreuthmayer" autocomplete="off"></label>
       <label class="field"><span>Reason / Reference</span><input type="text" id="d-ref" placeholder="Why, and ticket / change number" autocomplete="off"></label>
     </div>
   </section>
@@ -171,7 +171,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.1.5'; // tool version: bump when the page changes
+  const VERSION = '1.1.6'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -748,6 +748,7 @@
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
   restore();
+  if (!$('d-by').value) $('d-by').value = $('d-by').defaultValue; // older saves may hold an empty name
   ['input', 'change', 'click'].forEach(ev => document.addEventListener(ev, save));
 })();
 </script>
