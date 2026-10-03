@@ -55,7 +55,7 @@
 <body>
 <header>
   <h1>Change Request Form</h1>
-  <p>Fill in the sections below, click <strong>Generate report</strong>, add the reason for each file under its diff, then copy the finished release note.</p>
+  <p>Fill in the sections below, click <strong>Generate report</strong>, add the reason for each file under its diff, then download or copy the finished release note. What you type is saved in this browser.</p>
 </header>
 <main>
 
@@ -119,6 +119,7 @@
   <div id="report-wrap">
     <div id="report"></div>
     <div id="actions">
+      <button class="primary" id="word">Download Word document</button>
       <button id="copy-rich">Copy for change request</button>
       <button id="copy-md">Copy as Markdown</button>
       <button id="copy-patch">Copy file diffs as unified diff</button>
@@ -171,6 +172,7 @@
   const $ = id => document.getElementById(id);
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
+  const reasonMemo = {}; // file name -> reason typed under its diff
 
   const split = s => s === '' ? [] : s.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
   const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -465,12 +467,10 @@
 
   function generate() {
     const ws = $('ws').checked;
-    const prev = {};
-    (last ? last.files : []).forEach(f => { prev[f.name] = f.reason; });
     const files = [...filesEl.children].map(card => {
       const q = c => card.querySelector(c).value;
       const name = card.querySelector('.name').textContent;
-      return { name, reason: prev[name] || '', removed: false, hunks: buildHunks(diffLines(split(q('.a')), split(q('.b')), ws)) };
+      return { name, reason: reasonMemo[name] || '', removed: false, hunks: buildHunks(diffLines(split(q('.a')), split(q('.b')), ws)) };
     });
     last = { form: readForm(), files };
     renderPreview();
@@ -523,7 +523,7 @@
       const ta = document.createElement('textarea');
       ta.placeholder = 'Why is this change needed?'; ta.value = f.reason;
       ta.style.cssText = 'width:100%;height:70px;padding:8px 10px;background:#f6f7f9;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font:14px system-ui,sans-serif;white-space:pre-wrap';
-      ta.addEventListener('input', () => { f.reason = ta.value; });
+      ta.addEventListener('input', () => { f.reason = ta.value; reasonMemo[f.name] = ta.value; });
       sec.append(lab, ta);
       root.appendChild(sec);
     });
@@ -565,6 +565,69 @@
     flash('Copied — paste into your change request');
   }
 
+  // ---------- Word export ----------
+  // Word opens HTML saved as .doc and keeps the inline-styled tables, colours and code blocks.
+  function downloadWord() {
+    if (!last) return;
+    const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+      '<head><meta charset="utf-8"><title>Change Request</title></head><body>' +
+      '<h1 style="' + H + 'font-size:24px">Change Request</h1>' + reportHtml(last) + '</body></html>';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff', html], { type: 'application/msword' }));
+    a.download = 'Change-Request-' + (last.form.date || 'undated') + '.doc';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    flash('Word document downloaded');
+  }
+
+  // ---------- autosave (this browser only) ----------
+
+  const KEY = 'change-request-form-v1';
+  const FIELDS = ['d-date', 'd-env', 'd-by', 'd-ref', 'list', 'config', 'other', 'verify'];
+  let cleared = false, saveTimer;
+
+  const rowState = (id, cls) => [...$(id).children].map(r => {
+    const o = {};
+    cls.forEach(c => { const e = r.querySelector('.' + c); o[c] = e ? e.value : ''; });
+    return o;
+  });
+
+  function snapshot() {
+    return {
+      fields: Object.fromEntries(FIELDS.map(id => [id, $(id).value])), ws: $('ws').checked,
+      files: [...filesEl.children].map(c => ({ a: c.querySelector('.a').value, b: c.querySelector('.b').value })),
+      db: rowState('db', ['nm', 'kind', 'sql']), sp: rowState('sp', ['nm', 'kind', 'chg', 'sql']),
+      reasons: reasonMemo
+    };
+  }
+
+  function save() {
+    if (cleared) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(snapshot())); } catch (e) {} }, 300);
+  }
+
+  function restore() {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    if (!st) return;
+    FIELDS.forEach(id => { if (st.fields && st.fields[id] != null) $(id).value = st.fields[id]; });
+    $('ws').checked = !!st.ws;
+    syncCards();
+    (st.files || []).forEach((f, i) => {
+      const c = filesEl.children[i];
+      if (!c) return;
+      c.querySelector('.a').value = f.a; c.querySelector('.b').value = f.b;
+      c.querySelector('.a').dispatchEvent(new Event('input'));
+    });
+    const fill = (id, tpl, rows) => (rows || []).forEach(o => {
+      const r = addRow(id, tpl);
+      Object.keys(o).forEach(c => { const e = r.querySelector('.' + c); if (e) e.value = o[c]; });
+    });
+    fill('db', 'tpl-db', st.db); fill('sp', 'tpl-sp', st.sp);
+    Object.assign(reasonMemo, st.reasons || {});
+  }
+
   // ---------- wiring ----------
 
   const today = new Date();
@@ -574,11 +637,18 @@
   $('add-db').onclick = () => addRow('db', 'tpl-db').querySelector('.nm').focus();
   $('add-sp').onclick = () => addRow('sp', 'tpl-sp').querySelector('.nm').focus();
   $('go').onclick = generate;
-  $('clear').onclick = () => { if (confirm('Clear the whole form?')) location.reload(); };
+  $('clear').onclick = () => {
+    if (!confirm('Clear the whole form? This also deletes what is saved in this browser.')) return;
+    cleared = true;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  };
+  $('word').onclick = downloadWord;
   $('copy-rich').onclick = copyRich;
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
-  syncCards();
+  restore();
+  ['input', 'change', 'click'].forEach(ev => document.addEventListener(ev, save));
 })();
 </script>
 </body>
