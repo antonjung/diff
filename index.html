@@ -39,8 +39,6 @@
   input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
   #report-wrap { display: none; margin: 8px 0 40px; }
   #actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
-  #reasons .reason { height: 60px; margin: 2px 0 10px; padding: 8px 10px; }
-  #reasons .rname { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
   #status { color: var(--muted); }
   #report { background: #fff; color: #1f2328; border: 1px solid var(--border); border-radius: 6px; padding: 16px; overflow-x: auto; }
 </style>
@@ -65,10 +63,6 @@
 
   <div id="report-wrap">
     <div id="report"></div>
-    <section class="file" style="margin-top:16px">
-      <label class="reason-label" style="margin-top:0">Reasons for change <small style="font-weight:400;color:var(--muted)">&mdash; now that you've seen the diff</small></label>
-      <div id="reasons"></div>
-    </section>
     <div id="actions">
       <button id="copy-rich">Copy for change request</button>
       <button id="copy-md">Copy as Markdown</button>
@@ -205,41 +199,54 @@
   const sect = t => '<h2 style="' + H + 'font-size:18px;margin:18px 0 8px">' + t + '</h2>';
   const nm = f => f.name || '(unnamed file)';
 
-  function fileDiffHtml(f) {
-    let h = '<p style="' + H + 'margin:10px 0 6px"><strong>' + esc(nm(f)) + '</strong>';
-    if (!f.hunks.length) return h + ' &mdash; no differences found.</p>';
-    h += ' &mdash; <span style="color:#1a7f37"><strong>+' + f.adds + '</strong></span> <span style="color:#cf222e"><strong>−' + f.dels + '</strong></span></p>';
-    f.hunks.forEach((hk, n) => {
-      h += '<table style="' + ST.wrap + '"><thead><tr><th colspan="4" style="' + ST.hdr + '">Change ' + (n + 1) +
-        ' &mdash; before line ' + hk.oldStart + ', after line ' + hk.newStart + '</th></tr></thead><tbody>';
-      for (const r of hk.rows) {
-        const sign = r.t === '=' ? ' ' : r.t === '-' ? '−' : '+';
-        const sc = r.t === '-' ? 'color:#cf222e;' : r.t === '+' ? 'color:#1a7f37;' : 'color:#656d76;';
-        h += '<tr style="' + ST[r.t] + '"><td style="' + ST.num + '">' + (r.oldNo || '') + '</td><td style="' + ST.num + '">' + (r.newNo || '') +
-          '</td><td style="width:1%;padding:0 4px;' + sc + 'font-weight:bold;vertical-align:top">' + sign +
-          '</td><td style="' + ST.code + '">' + codeHtml(r) + '</td></tr>';
-      }
-      h += '</tbody></table>';
-    });
-    return h;
+  const keptHunks = f => f.hunks.filter(h => !h.removed);
+  const keptFiles = files => files.filter(f => !f.removed);
+  const stat = (f, t) => keptHunks(f).reduce((n, h) => n + h.rows.filter(r => r.t === t).length, 0);
+  const emptyNote = f => f.hunks.length ? 'all change blocks removed' : 'no differences found';
+
+  function statHtml(f) {
+    return ' &mdash; <span style="color:#1a7f37"><strong>+' + stat(f, '+') + '</strong></span> <span style="color:#cf222e"><strong>\u2212' + stat(f, '-') + '</strong></span>';
   }
 
-  function reportHtml(files, withReasons = true) {
+  function hunkHtml(hk, label) {
+    let h = '<table style="' + ST.wrap + '"><thead><tr><th colspan="4" style="' + ST.hdr + '">Change ' + label +
+      ' &mdash; before line ' + hk.oldStart + ', after line ' + hk.newStart + '</th></tr></thead><tbody>';
+    for (const r of hk.rows) {
+      const sign = r.t === '=' ? ' ' : r.t === '-' ? '\u2212' : '+';
+      const sc = r.t === '-' ? 'color:#cf222e;' : r.t === '+' ? 'color:#1a7f37;' : 'color:#656d76;';
+      h += '<tr style="' + ST[r.t] + '"><td style="' + ST.num + '">' + (r.oldNo || '') + '</td><td style="' + ST.num + '">' + (r.newNo || '') +
+        '</td><td style="width:1%;padding:0 4px;' + sc + 'font-weight:bold;vertical-align:top">' + sign +
+        '</td><td style="' + ST.code + '">' + codeHtml(r) + '</td></tr>';
+    }
+    return h + '</tbody></table>';
+  }
+
+  function fileDiffHtml(f) {
+    const kept = keptHunks(f);
+    let h = '<p style="' + H + 'margin:10px 0 6px"><strong>' + esc(nm(f)) + '</strong>';
+    if (!kept.length) return h + ' &mdash; ' + emptyNote(f) + '.</p>';
+    return h + statHtml(f) + '</p>' + kept.map((hk, n) => hunkHtml(hk, n + 1)).join('');
+  }
+
+  function reportHtml(files) {
+    files = keptFiles(files);
     let h = '<div style="' + H + 'font-size:14px">';
     h += sect('File(s) changed') + '<ul style="margin:0 0 8px;padding-left:22px">' +
       files.map(f => '<li><strong>' + esc(nm(f)) + '</strong></li>').join('') + '</ul>';
     h += sect('What changed') + files.map(fileDiffHtml).join('');
-    if (withReasons) h += sect('Reasons for change') + files.map(f =>
-      '<p style="margin:0 0 8px;white-space:pre-wrap"><strong>' + esc(nm(f)) + '</strong>: ' + (f.reason ? esc(f.reason) : '<em>No reason given</em>') + '</p>').join('');
+    h += sect('Reasons for change') + files.map(f => {
+      const r = f.reason.trim();
+      return '<p style="margin:0 0 8px;white-space:pre-wrap"><strong>' + esc(nm(f)) + '</strong>: ' + (r ? esc(r) : '<em>No reason given</em>') + '</p>';
+    }).join('');
     return h + '</div>';
   }
 
   const rowText = r => (r.t === '=' ? ' ' : r.t) + r.text;
 
   function patchText(files) {
-    return files.filter(f => f.hunks.length).map(f => {
+    return keptFiles(files).filter(f => keptHunks(f).length).map(f => {
       const lines = ['--- a/' + nm(f), '+++ b/' + nm(f)];
-      f.hunks.forEach(hk => {
+      keptHunks(f).forEach(hk => {
         lines.push('@@ -' + hk.oldStart + ',' + hk.oldLen + ' +' + hk.newStart + ',' + hk.newLen + ' @@');
         hk.rows.forEach(r => lines.push(rowText(r)));
       });
@@ -248,15 +255,17 @@
   }
 
   function markdownText(files) {
+    files = keptFiles(files);
     let md = '## File(s) changed\n\n' + files.map(f => '- **' + nm(f) + '**').join('\n') + '\n\n## What changed\n\n';
     files.forEach(f => {
-      md += '**' + nm(f) + '**' + (f.hunks.length ? ' (+' + f.adds + ' −' + f.dels + ')' : ' — no differences found') + '\n\n';
-      f.hunks.forEach((hk, n) => {
-        md += 'Change ' + (n + 1) + ' — before line ' + hk.oldStart + ', after line ' + hk.newStart +
+      const kept = keptHunks(f);
+      md += '**' + nm(f) + '**' + (kept.length ? ' (+' + stat(f, '+') + ' \u2212' + stat(f, '-') + ')' : ' \u2014 ' + emptyNote(f)) + '\n\n';
+      kept.forEach((hk, n) => {
+        md += 'Change ' + (n + 1) + ' \u2014 before line ' + hk.oldStart + ', after line ' + hk.newStart +
           '\n\n```diff\n' + hk.rows.map(rowText).join('\n') + '\n```\n\n';
       });
     });
-    md += '## Reasons for change\n\n' + files.map(f => '**' + nm(f) + '**: ' + (f.reason || '_No reason given_')).join('\n\n');
+    md += '## Reasons for change\n\n' + files.map(f => '**' + nm(f) + '**: ' + (f.reason.trim() || '_No reason given_')).join('\n\n');
     return md + '\n';
   }
 
@@ -286,33 +295,65 @@
 
   function generate() {
     const ws = $('ws').checked;
+    const prev = {};
+    (last || []).forEach(f => { prev[f.name] = f.reason; });
     last = [...filesEl.children].map(card => {
       const q = c => card.querySelector(c).value;
+      const name = card.querySelector('.name').textContent;
       const rows = diffLines(split(q('.a')), split(q('.b')), ws);
-      return {
-        name: card.querySelector('.name').textContent, reason: '', hunks: buildHunks(rows),
-        adds: rows.filter(r => r.t === '+').length, dels: rows.filter(r => r.t === '-').length
-      };
+      return { name, reason: prev[name] || '', removed: false, hunks: buildHunks(rows) };
     });
-    const prev = {};
-    document.querySelectorAll('#reasons textarea').forEach(t => { prev[t.dataset.name] = t.value; });
-    $('report').innerHTML = reportHtml(last, false);
-    $('reasons').innerHTML = '';
-    last.forEach(f => {
-      const wrap = document.createElement('div');
-      const lab = document.createElement('div');
-      lab.className = 'rname'; lab.textContent = nm(f);
-      const ta = document.createElement('textarea');
-      ta.className = 'reason'; ta.dataset.name = f.name; ta.placeholder = 'Why is this change needed?';
-      ta.value = prev[f.name] || '';
-      f.reason = ta.value.trim();
-      ta.addEventListener('input', () => { f.reason = ta.value.trim(); });
-      wrap.append(lab, ta);
-      $('reasons').appendChild(wrap);
-    });
+    renderPreview();
     $('report-wrap').style.display = 'block';
     $('status').textContent = '';
     $('report-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function btn(text, onclick) {
+    const b = document.createElement('button');
+    b.textContent = text; b.onclick = onclick; b.style.cssText = 'padding:2px 10px;font-size:12px';
+    return b;
+  }
+
+  // On-screen report: each file's diff blocks (removable) followed by its reason box. Copied output is built separately.
+  function renderPreview() {
+    const root = $('report');
+    root.innerHTML = '';
+    const bar = (parent, el) => { const d = document.createElement('div'); d.style.cssText = 'display:flex;gap:10px;align-items:center;margin:8px 0 4px'; d.append(...el); parent.appendChild(d); return d; };
+    const note = t => { const e = document.createElement('span'); e.style.cssText = 'color:#656d76;font-size:13px'; e.textContent = t; return e; };
+    const title = f => { const e = document.createElement('strong'); e.textContent = nm(f); e.style.cssText = 'font-size:15px'; return e; };
+
+    last.forEach(f => {
+      const sec = document.createElement('div');
+      sec.style.cssText = 'margin:0 0 22px;padding-bottom:12px;border-bottom:1px solid #d0d7de';
+      if (f.removed) {
+        bar(sec, [title(f), note('removed from report'), btn('Restore file', () => { f.removed = false; renderPreview(); })]);
+        root.appendChild(sec);
+        return;
+      }
+      const head = bar(sec, [title(f), btn('Remove file', () => { f.removed = true; renderPreview(); })]);
+      const stats = document.createElement('span');
+      if (keptHunks(f).length) stats.innerHTML = statHtml(f).replace(' &mdash; ', ''); else stats.textContent = emptyNote(f);
+      head.insertBefore(stats, head.lastChild);
+      f.hunks.forEach((hk, n) => {
+        const box = document.createElement('div');
+        if (hk.removed) {
+          bar(box, [note('Change ' + (n + 1) + ' removed from report'), btn('Restore', () => { hk.removed = false; renderPreview(); })]);
+        } else {
+          bar(box, [btn('Remove this block', () => { hk.removed = true; renderPreview(); })]);
+          const t = document.createElement('div'); t.innerHTML = hunkHtml(hk, n + 1); box.appendChild(t);
+        }
+        sec.appendChild(box);
+      });
+      const lab = document.createElement('div');
+      lab.textContent = 'Reason for change'; lab.style.cssText = 'font-weight:600;margin:6px 0 2px';
+      const ta = document.createElement('textarea');
+      ta.className = 'reason'; ta.placeholder = 'Why is this change needed?'; ta.value = f.reason;
+      ta.style.cssText = 'height:70px;padding:8px 10px;background:#f6f7f9;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font:14px system-ui,sans-serif;white-space:pre-wrap';
+      ta.addEventListener('input', () => { f.reason = ta.value; });
+      sec.append(lab, ta);
+      root.appendChild(sec);
+    });
   }
 
   function flash(msg) {
@@ -349,7 +390,7 @@
   }
 
   $('go').onclick = generate;
-  $('clear').onclick = () => { $('list').value = ''; filesEl.innerHTML = ''; syncCards(); $('report-wrap').style.display = 'none'; $('reasons').innerHTML = ''; last = null; };
+  $('clear').onclick = () => { $('list').value = ''; filesEl.innerHTML = ''; syncCards(); $('report-wrap').style.display = 'none'; last = null; };
   $('copy-rich').onclick = copyRich;
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
