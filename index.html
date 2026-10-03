@@ -64,7 +64,6 @@
     <h2>Change details</h2>
     <div class="grid">
       <label class="field"><span>Date of change</span><input type="date" id="d-date"></label>
-      <label class="field"><span>Version</span><input type="text" id="d-ver" placeholder="e.g. 1.0" autocomplete="off"></label>
       <label class="field"><span>Environment changed</span>
         <input type="text" id="d-env" list="envs" placeholder="Live / Production" autocomplete="off">
         <datalist id="envs"><option value="Live"><option value="Production"></datalist></label>
@@ -173,7 +172,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.1.0'; // tool version: bump when the page changes
+  const VERSION = '1.1.1'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -338,7 +337,7 @@
   };
 
   const detailRows = f => [
-    ['Date of change', fmtDate(f.date)], ['Version', f.ver], ['Environment changed', f.env], ['Changed by', f.by], ['Reason / Reference', f.ref]
+    ['Date of change', fmtDate(f.date)], ['Environment changed', f.env], ['Changed by', f.by], ['Reason / Reference', f.ref]
   ];
 
   const detailsHtml = form =>
@@ -463,7 +462,7 @@
 
   function readForm() {
     return {
-      date: $('d-date').value, ver: $('d-ver').value.trim(), env: $('d-env').value.trim(), by: $('d-by').value.trim(), ref: $('d-ref').value.trim(),
+      date: $('d-date').value, env: $('d-env').value.trim(), by: $('d-by').value.trim(), ref: $('d-ref').value.trim(),
       db: readRows('db'), sp: readRows('sp'),
       config: lines('config'), other: lines('other'), verify: $('verify').value.trim()
     };
@@ -656,7 +655,7 @@
     out.push(form.verify ? para(textRuns(form.verify)) : para([run('None', { italics: true })]));
 
     return new Document({
-      title: 'Change Request' + (form.ver ? ' v' + form.ver : ''),
+      title: 'Change Request',
       styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
       sections: [{
         footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [
@@ -675,7 +674,7 @@
     const safe = x => String(x).replace(/[^\w.-]+/g, '_');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'Change-Request-' + safe(last.form.date || 'undated') + (last.form.ver ? '-v' + safe(last.form.ver) : '') + '.docx';
+    a.download = 'Change-Request-' + safe(last.form.date || 'undated') + '.docx';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     flash('Word document downloaded');
@@ -684,7 +683,7 @@
   // ---------- autosave (this browser only) ----------
 
   const KEY = 'change-request-form-v1';
-  const FIELDS = ['d-date', 'd-ver', 'd-env', 'd-by', 'd-ref', 'list', 'config', 'other', 'verify'];
+  const FIELDS = ['d-date', 'd-env', 'd-by', 'd-ref', 'list', 'config', 'other', 'verify'];
   let cleared = false, saveTimer;
 
   const rowState = (id, cls) => [...$(id).children].map(r => {
