@@ -31,7 +31,9 @@
   .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
   .item { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 10px; background: var(--bg); }
   .item .row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; margin-bottom: 8px; align-items: end; }
-  .item textarea.sql { height: 110px; width: 100%; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--panel); color: var(--text); }
+  [hidden] { display: none !important; }
+  .item .lbl { font-weight: 600; margin: 4px 0 2px; }
+  .item textarea.before, .item textarea.sql { height: 110px; width: 100%; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--panel); color: var(--text); }
   .file-head { margin-bottom: 10px; }
   .file-head .name { font-family: ui-monospace, Consolas, monospace; }
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -165,6 +167,9 @@
         <select class="chg"><option>New</option><option>Modified</option></select></label>
       <button class="remove">Remove</button>
     </div>
+    <div class="lbl" hidden>Previous SQL (before)</div>
+    <textarea class="before mono" hidden spellcheck="false" placeholder="Paste the SQL as it was before the change…"></textarea>
+    <div class="lbl" hidden>New SQL (after)</div>
     <textarea class="sql mono" spellcheck="false" placeholder="SQL used…"></textarea>
   </div>
 </template>
@@ -172,7 +177,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.2.0'; // tool version: bump when the page changes
+  const VERSION = '1.3.0'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -346,8 +351,12 @@
 
   const sqlHtml = sql => '<pre style="' + ST.sql + '">' + esc(sql) + '</pre>';
 
+  const subHead = t => '<p style="' + H + 'margin:8px 0 4px"><em>' + t + '</em></p>';
+
   const itemsHtml = (title, rows, label) => sect(title) + (rows.length ? rows.map(r =>
-    '<p style="' + H + 'margin:8px 0 0"><strong>' + esc(r.name || '(unnamed)') + '</strong> &mdash; ' + esc(label(r)) + '</p>' + sqlHtml(r.sql)).join('') : none);
+    '<p style="' + H + 'margin:8px 0 0"><strong>' + esc(r.name || '(unnamed)') + '</strong> &mdash; ' + esc(label(r)) + '</p>' +
+    (r.hunks ? subHead('Changes from previous version') + (r.hunks.length ? r.hunks.map((hk, n) => hunkHtml(hk, n + 1)).join('') : '<p style="' + H + 'margin:0 0 8px">No differences.</p>') + subHead('New SQL') : '') +
+    sqlHtml(r.sql)).join('') : none);
 
   const listHtml = (title, items) => sect(title) + (items.length
     ? '<ul style="margin:0 0 8px;padding-left:22px;' + H + '">' + items.map(i => '<li>' + esc(i) + '</li>').join('') + '</ul>' : none);
@@ -380,7 +389,10 @@
 
   const FENCE = '`' + '`' + '`';
   const mdSql = (rows, label) => rows.length ? rows.map(r =>
-    '**' + (r.name || '(unnamed)') + '** — ' + label(r) + '\n\n' + FENCE + 'sql\n' + r.sql + '\n' + FENCE).join('\n\n') : '_None_';
+    '**' + (r.name || '(unnamed)') + '** \u2014 ' + label(r) + '\n\n' +
+    (r.hunks ? '_Changes from previous version_\n\n' + (r.hunks.length ? r.hunks.map((hk, n) =>
+      'Change ' + (n + 1) + ' \u2014 before line ' + hk.oldStart + ', after line ' + hk.newStart + '\n\n' + FENCE + 'diff\n' + hk.rows.map(rowText).join('\n') + '\n' + FENCE + '\n\n').join('') : 'No differences.\n\n') + '_New SQL_\n\n' : '') +
+    FENCE + 'sql\n' + r.sql + '\n' + FENCE).join('\n\n') : '_None_';
   const mdList = items => items.length ? items.map(i => '- ' + i).join('\n') : '_None_';
 
   function markdownText(L) {
@@ -447,6 +459,11 @@
   function addRow(containerId, tplId) {
     const row = $(tplId).content.firstElementChild.cloneNode(true);
     row.querySelector('.remove').onclick = () => row.remove();
+    const chg = row.querySelector('.chg');
+    if (chg) chg.addEventListener('change', () => {
+      const mod = chg.value === 'Modified';
+      row.querySelectorAll('.lbl, .before').forEach(e => { e.hidden = !mod; });
+    });
     $(containerId).appendChild(row);
     return row;
   }
@@ -456,7 +473,7 @@
   function readRows(containerId) {
     return [...$(containerId).children].map(row => {
       const v = c => (row.querySelector(c) || { value: '' }).value;
-      return { name: v('.nm').trim(), kind: v('.kind'), chg: v('.chg'), sql: v('.sql').replace(/\s+$/, '') };
+      return { name: v('.nm').trim(), kind: v('.kind'), chg: v('.chg'), sql: v('.sql').replace(/\s+$/, ''), before: v('.before').replace(/\s+$/, '') };
     }).filter(r => r.name || r.sql.trim());
   }
 
@@ -475,7 +492,12 @@
       const name = card.querySelector('.name').textContent;
       return { name, reason: reasonMemo[name] || '', removed: false, hunks: buildHunks(diffLines(split(q('.a')), split(q('.b')), ws)) };
     });
-    last = { form: readForm(), files };
+    const form = readForm();
+    // A modified procedure / function with previous SQL gets a diff against the new SQL
+    form.sp.forEach(r => {
+      if (r.chg === 'Modified' && r.before.trim()) r.hunks = buildHunks(diffLines(split(r.before), split(r.sql), ws));
+    });
+    last = { form, files };
     renderPreview();
     $('report-wrap').style.display = 'block';
     $('status').textContent = '';
@@ -590,25 +612,7 @@
     const table = (rows, cols) => new Table({ rows, columnWidths: cols, width: { size: cols.reduce((a, b) => a + b, 0), type: WidthType.DXA } });
     const code = t => String(t).replace(/\t/g, '    ');
 
-    const out = [];
-    out.push(new Paragraph({ text: 'Change Request', heading: HeadingLevel.TITLE, spacing: { after: 160 } }));
-
-    out.push(h1('Change details'));
-    out.push(table(detailRows(form).map(([k, v]) => new TableRow({ children: [
-      cell([para([run(k, { bold: true })], { spacing: { after: 0 } })], 2600, { fill: 'F6F8FA' }),
-      cell([para([run(v || '\u2014')], { spacing: { after: 0 } })], W - 2600)
-    ] })), [2600, W - 2600]));
-
-    out.push(h1('File(s) changed'));
-    if (!files.length) out.push(para([run('None', { italics: true })]));
-    else {
-      files.forEach(f => out.push(para([run(nm(f), { bold: true })], { bullet: { level: 0 }, spacing: { after: 40 } })));
-      out.push(h1('What changed'));
-      files.forEach(f => {
-        const kept = keptHunks(f);
-        out.push(para([run(nm(f), { bold: true }), run(kept.length ? '  +' + stat(f, '+') + ' \u2212' + stat(f, '-') : '  \u2014 ' + emptyNote(f), { color: '656D76' })],
-          { keepNext: true, spacing: { before: 160, after: 80 } }));
-        kept.forEach((hk, n) => {
+    const diffTable = (hk, n) => {
           const cols = [650, 650, 400, W - 1700];
           const rows = [new TableRow({ children: [cell([para([run('Change ' + (n + 1) + ' \u2014 before line ' + hk.oldStart + ', after line ' + hk.newStart,
             { color: '0550AE', size: 18 })], { spacing: { after: 0 } })], W, { fill: 'DDF4FF', span: 4 })] })];
@@ -628,8 +632,28 @@
               cell([para(kids, { spacing: { after: 0 } })], cols[3], { fill: bg })
             ] }));
           });
-          out.push(table(rows, cols), gap());
-        });
+      return table(rows, cols);
+    };
+
+    const out = [];
+    out.push(new Paragraph({ text: 'Change Request', heading: HeadingLevel.TITLE, spacing: { after: 160 } }));
+
+    out.push(h1('Change details'));
+    out.push(table(detailRows(form).map(([k, v]) => new TableRow({ children: [
+      cell([para([run(k, { bold: true })], { spacing: { after: 0 } })], 2600, { fill: 'F6F8FA' }),
+      cell([para([run(v || '\u2014')], { spacing: { after: 0 } })], W - 2600)
+    ] })), [2600, W - 2600]));
+
+    out.push(h1('File(s) changed'));
+    if (!files.length) out.push(para([run('None', { italics: true })]));
+    else {
+      files.forEach(f => out.push(para([run(nm(f), { bold: true })], { bullet: { level: 0 }, spacing: { after: 40 } })));
+      out.push(h1('What changed'));
+      files.forEach(f => {
+        const kept = keptHunks(f);
+        out.push(para([run(nm(f), { bold: true }), run(kept.length ? '  +' + stat(f, '+') + ' \u2212' + stat(f, '-') : '  \u2014 ' + emptyNote(f), { color: '656D76' })],
+          { keepNext: true, spacing: { before: 160, after: 80 } }));
+        kept.forEach((hk, n) => out.push(diffTable(hk, n), gap()));
         out.push(para([run('Reason for change: ', { bold: true }), ...(f.reason.trim() ? textRuns(f.reason.trim()) : [run('No reason given', { italics: true })])],
           { spacing: { after: 240 } }));
       });
@@ -640,7 +664,16 @@
     const sqlSection = (title, rows, label) => {
       out.push(h1(title));
       if (!rows.length) return out.push(para([run('None', { italics: true })]));
-      rows.forEach(r => out.push(para([run(r.name || '(unnamed)', { bold: true }), run(' \u2014 ' + label(r))], { keepNext: true, spacing: { before: 120, after: 60 } }), sqlBox(r.sql), gap()));
+      rows.forEach(r => {
+        out.push(para([run(r.name || '(unnamed)', { bold: true }), run(' \u2014 ' + label(r))], { keepNext: true, spacing: { before: 120, after: 60 } }));
+        if (r.hunks) {
+          out.push(para([run('Changes from previous version', { italics: true })], { keepNext: true }));
+          if (r.hunks.length) r.hunks.forEach((hk, n) => out.push(diffTable(hk, n), gap()));
+          else out.push(para([run('No differences.')]));
+          out.push(para([run('New SQL', { italics: true })], { keepNext: true }));
+        }
+        out.push(sqlBox(r.sql), gap());
+      });
     };
     const listSection = (title, items) => {
       out.push(h1(title));
@@ -744,7 +777,7 @@
     return {
       fields: Object.fromEntries(FIELDS.map(id => [id, $(id).value])), ws: $('ws').checked,
       files: [...filesEl.children].map(c => ({ a: c.querySelector('.a').value, b: c.querySelector('.b').value })),
-      db: rowState('db', ['nm', 'kind', 'sql']), sp: rowState('sp', ['nm', 'kind', 'chg', 'sql']),
+      db: rowState('db', ['nm', 'kind', 'sql']), sp: rowState('sp', ['nm', 'kind', 'chg', 'before', 'sql']),
       reasons: reasonMemo
     };
   }
@@ -771,6 +804,8 @@
     const fill = (id, tpl, rows) => (rows || []).forEach(o => {
       const r = addRow(id, tpl);
       Object.keys(o).forEach(c => { const e = r.querySelector('.' + c); if (e) e.value = o[c]; });
+      const chg = r.querySelector('.chg');
+      if (chg) chg.dispatchEvent(new Event('change')); // reveals the Previous SQL box for modified items
     });
     fill('db', 'tpl-db', st.db); fill('sp', 'tpl-sp', st.sp);
     Object.assign(reasonMemo, st.reasons || {});
