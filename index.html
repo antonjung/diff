@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Change Request Diff</title>
+<title>Change Request Form</title>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #fff; --text: #1f2328; --muted: #656d76; --border: #d0d7de;
@@ -17,26 +17,35 @@
   header, main { max-width: 1400px; margin: 0 auto; padding: 0 16px; }
   header { padding-top: 20px; }
   h1 { font-size: 20px; margin: 0 0 2px; }
-  header p { margin: 0 0 16px; color: var(--muted); }
-  .file { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
-  .file-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  header p, .hint { margin: 0 0 12px; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+  .card > .hint { margin-bottom: 10px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field > span { font-weight: 600; }
+  input[type=text], input[type=date], select, textarea.box {
+    font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); width: 100%; }
+  textarea.box { height: 90px; resize: vertical; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
+  .item { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 10px; background: var(--bg); }
+  .item .row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; margin-bottom: 8px; align-items: end; }
+  .item textarea.sql { height: 110px; width: 100%; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--panel); color: var(--text); }
+  .file-head { margin-bottom: 10px; }
   .file-head .name { font-family: ui-monospace, Consolas, monospace; }
-  .reason { width: 100%; height: 70px; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; font: inherit; white-space: pre-wrap; background: var(--bg); }
-  .reason-label { display: block; margin-top: 10px; font-weight: 600; }
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media (max-width: 760px) { .panels { grid-template-columns: 1fr; } }
-  .panel { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; }
+  @media (max-width: 760px) { .panels, .grid, .item .row { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; }
   .panel label { padding: 8px 12px; font-weight: 600; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; }
   .panel label small { font-weight: 400; color: var(--muted); }
-  textarea { width: 100%; height: 240px; resize: vertical; border: 0; padding: 10px 12px; background: transparent; color: var(--text);
+  .panel textarea { width: 100%; height: 240px; resize: vertical; border: 0; padding: 10px 12px; background: transparent; color: var(--text);
     font: 12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; overflow: auto; tab-size: 4; }
-  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
   .bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 14px 0; }
   button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
   button:hover { filter: brightness(.95); }
   .bar label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
-  input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
   #report-wrap { display: none; margin: 8px 0 40px; }
   #actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
   #status { color: var(--muted); }
@@ -45,20 +54,66 @@
 </head>
 <body>
 <header>
-  <h1>Change Request Diff Report</h1>
-  <p>Add each changed file, paste its before and after code, give a reason, then generate one report for the change request.</p>
+  <h1>Change Request Form</h1>
+  <p>Fill in the sections below, click <strong>Generate report</strong>, add the reason for each file under its diff, then copy the finished release note.</p>
 </header>
 <main>
-  <section class="file">
-    <label class="reason-label" for="list" style="margin-top:0">File(s) changed <small style="font-weight:400;color:var(--muted)">&mdash; one per line</small></label>
-    <textarea id="list" class="reason" style="height:90px;font-family:ui-monospace,Consolas,monospace" spellcheck="false" placeholder="src/app/config.js&#10;src/app/login.js"></textarea>
+
+  <section class="card">
+    <h2>Change details</h2>
+    <div class="grid">
+      <label class="field"><span>Date of change</span><input type="date" id="d-date"></label>
+      <label class="field"><span>Environment changed</span>
+        <input type="text" id="d-env" list="envs" placeholder="Live / Production" autocomplete="off">
+        <datalist id="envs"><option value="Live"><option value="Production"></datalist></label>
+      <label class="field"><span>Changed by</span><input type="text" id="d-by" autocomplete="off"></label>
+      <label class="field"><span>Reason / Reference</span><input type="text" id="d-ref" placeholder="Why, and ticket / change number" autocomplete="off"></label>
+    </div>
   </section>
-  <div id="files"></div>
+
+  <section class="card">
+    <h2>Files changed</h2>
+    <p class="hint">One file per line. A Before / After block appears below for each one.</p>
+    <textarea id="list" class="box mono" spellcheck="false" placeholder="src/app/config.js&#10;src/app/login.js"></textarea>
+    <div id="files" style="margin-top:12px"></div>
+  </section>
+
+  <section class="card">
+    <h2>Database table changes</h2>
+    <p class="hint">For each table: the type of change and the SQL used.</p>
+    <div id="db"></div>
+    <button id="add-db">+ Add table change</button>
+  </section>
+
+  <section class="card">
+    <h2>Stored procedures &amp; functions</h2>
+    <p class="hint">New or modified, with the SQL used.</p>
+    <div id="sp"></div>
+    <button id="add-sp">+ Add procedure / function</button>
+  </section>
+
+  <section class="card">
+    <h2>Config / Environment changes</h2>
+    <p class="hint">One change per line.</p>
+    <textarea id="config" class="box" spellcheck="false"></textarea>
+  </section>
+
+  <section class="card">
+    <h2>Other changes</h2>
+    <p class="hint">One change per line.</p>
+    <textarea id="other" class="box" spellcheck="false"></textarea>
+  </section>
+
+  <section class="card">
+    <h2>Verification</h2>
+    <p class="hint">How to confirm the change is working.</p>
+    <textarea id="verify" class="box" spellcheck="false"></textarea>
+  </section>
 
   <div class="bar">
-    <button class="primary" id="go">Generate diff report</button>
+    <button class="primary" id="go">Generate report</button>
     <button id="clear">Clear all</button>
-    <label><input type="checkbox" id="ws"> Ignore whitespace changes</label>
+    <label><input type="checkbox" id="ws"> Ignore whitespace changes in file diffs</label>
   </div>
 
   <div id="report-wrap">
@@ -66,14 +121,14 @@
     <div id="actions">
       <button id="copy-rich">Copy for change request</button>
       <button id="copy-md">Copy as Markdown</button>
-      <button id="copy-patch">Copy as unified diff</button>
+      <button id="copy-patch">Copy file diffs as unified diff</button>
       <span id="status" role="status"></span>
     </div>
   </div>
 </main>
 
-<template id="tpl">
-  <section class="file">
+<template id="tpl-file">
+  <section class="item">
     <div class="file-head"><strong class="name"></strong></div>
     <div class="panels">
       <div class="panel"><label>Before <small class="ca"></small></label>
@@ -84,14 +139,43 @@
   </section>
 </template>
 
+<template id="tpl-db">
+  <div class="item">
+    <div class="row">
+      <label class="field"><span>Table</span><input type="text" class="nm mono" placeholder="dbo.Customers" spellcheck="false"></label>
+      <label class="field"><span>Change type</span>
+        <select class="kind"><option>Create table</option><option>Alter table</option><option>Drop table</option><option>Index</option><option>Data change</option><option>Other</option></select></label>
+      <span></span>
+      <button class="remove">Remove</button>
+    </div>
+    <textarea class="sql mono" spellcheck="false" placeholder="SQL used…"></textarea>
+  </div>
+</template>
+
+<template id="tpl-sp">
+  <div class="item">
+    <div class="row">
+      <label class="field"><span>Name</span><input type="text" class="nm mono" placeholder="dbo.usp_GetCustomer" spellcheck="false"></label>
+      <label class="field"><span>Type</span>
+        <select class="kind"><option>Stored procedure</option><option>Function</option></select></label>
+      <label class="field"><span>Change</span>
+        <select class="chg"><option>New</option><option>Modified</option></select></label>
+      <button class="remove">Remove</button>
+    </div>
+    <textarea class="sql mono" spellcheck="false" placeholder="SQL used…"></textarea>
+  </div>
+</template>
+
 <script>
 (function () {
   const $ = id => document.getElementById(id);
   const CONTEXT = 3;
-  let last = null; // array of { name, reason, hunks, adds, dels }
+  let last = null; // { form, files: [{ name, reason, removed, hunks }] }
 
   const split = s => s === '' ? [] : s.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
   const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // ---------- diff engine ----------
 
   // Myers O(ND) diff on two arrays of comparable keys. Returns ops: {t:'=' | '-' | '+', i, j}
   function myers(a, b) {
@@ -157,7 +241,7 @@
       pairHighlights(rs);
       const first = rs.find(r => r.oldNo), firstNew = rs.find(r => r.newNo);
       return {
-        rows: rs,
+        rows: rs, removed: false,
         oldStart: first ? first.oldNo : 0, oldLen: rs.filter(r => r.oldNo).length,
         newStart: firstNew ? firstNew.newNo : 0, newLen: rs.filter(r => r.newNo).length
       };
@@ -180,14 +264,24 @@
     }
   }
 
+  // ---------- report HTML (inline styles so it survives pasting) ----------
+
   const ST = {
     wrap: 'font-family:Consolas,Menlo,monospace;font-size:12px;border-collapse:collapse;width:100%;border:1px solid #d0d7de;margin:0 0 14px',
     hdr: 'background:#ddf4ff;color:#0550ae;padding:3px 8px;text-align:left;font-weight:normal',
     num: 'width:1%;min-width:40px;padding:0 8px;text-align:right;color:#656d76;vertical-align:top;user-select:none;white-space:nowrap',
     code: 'padding:0 8px;white-space:pre-wrap;word-break:break-all;vertical-align:top',
     '=': 'background:#ffffff', '-': 'background:#ffebe9', '+': 'background:#dafbe1',
-    hlDel: 'background:#ff818266', hlAdd: 'background:#4ac26b66'
+    hlDel: 'background:#ff818266', hlAdd: 'background:#4ac26b66',
+    th: 'text-align:left;background:#f6f8fa;padding:4px 10px;border:1px solid #d0d7de;white-space:nowrap;width:1%',
+    td: 'padding:4px 10px;border:1px solid #d0d7de',
+    sql: 'background:#f6f8fa;border:1px solid #d0d7de;padding:8px;font-family:Consolas,Menlo,monospace;font-size:12px;white-space:pre-wrap;margin:4px 0 14px'
   };
+  const H = 'font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1f2328;';
+  const sect = t => '<h2 style="' + H + 'font-size:18px;margin:20px 0 8px">' + esc(t) + '</h2>';
+  const wrapHtml = inner => '<div style="' + H + 'font-size:14px">' + inner + '</div>';
+  const none = '<p style="' + H + 'margin:0 0 8px"><em>None</em></p>';
+  const nm = f => f.name || '(unnamed file)';
 
   function codeHtml(r) {
     if (!r.hl || r.hl[0] === r.hl[1]) return esc(r.text);
@@ -195,24 +289,21 @@
     return esc(r.text.slice(0, s)) + '<span style="' + st + '">' + esc(r.text.slice(s, e)) + '</span>' + esc(r.text.slice(e));
   }
 
-  const H = 'font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1f2328;';
-  const sect = t => '<h2 style="' + H + 'font-size:18px;margin:18px 0 8px">' + t + '</h2>';
-  const nm = f => f.name || '(unnamed file)';
-
   const keptHunks = f => f.hunks.filter(h => !h.removed);
   const keptFiles = files => files.filter(f => !f.removed);
   const stat = (f, t) => keptHunks(f).reduce((n, h) => n + h.rows.filter(r => r.t === t).length, 0);
   const emptyNote = f => f.hunks.length ? 'all change blocks removed' : 'no differences found';
+  const rowText = r => (r.t === '=' ? ' ' : r.t) + r.text;
 
   function statHtml(f) {
-    return ' &mdash; <span style="color:#1a7f37"><strong>+' + stat(f, '+') + '</strong></span> <span style="color:#cf222e"><strong>\u2212' + stat(f, '-') + '</strong></span>';
+    return ' &mdash; <span style="color:#1a7f37"><strong>+' + stat(f, '+') + '</strong></span> <span style="color:#cf222e"><strong>−' + stat(f, '-') + '</strong></span>';
   }
 
   function hunkHtml(hk, label) {
     let h = '<table style="' + ST.wrap + '"><thead><tr><th colspan="4" style="' + ST.hdr + '">Change ' + label +
       ' &mdash; before line ' + hk.oldStart + ', after line ' + hk.newStart + '</th></tr></thead><tbody>';
     for (const r of hk.rows) {
-      const sign = r.t === '=' ? ' ' : r.t === '-' ? '\u2212' : '+';
+      const sign = r.t === '=' ? ' ' : r.t === '-' ? '−' : '+';
       const sc = r.t === '-' ? 'color:#cf222e;' : r.t === '+' ? 'color:#1a7f37;' : 'color:#656d76;';
       h += '<tr style="' + ST[r.t] + '"><td style="' + ST.num + '">' + (r.oldNo || '') + '</td><td style="' + ST.num + '">' + (r.newNo || '') +
         '</td><td style="width:1%;padding:0 4px;' + sc + 'font-weight:bold;vertical-align:top">' + sign +
@@ -223,9 +314,9 @@
 
   function fileDiffHtml(f) {
     const kept = keptHunks(f);
-    let h = '<p style="' + H + 'margin:10px 0 6px"><strong>' + esc(nm(f)) + '</strong>';
-    if (!kept.length) return h + ' &mdash; ' + emptyNote(f) + '.</p>';
-    return h + statHtml(f) + '</p>' + kept.map((hk, n) => hunkHtml(hk, n + 1)).join('');
+    const head = '<p style="' + H + 'margin:10px 0 6px"><strong>' + esc(nm(f)) + '</strong>';
+    if (!kept.length) return head + ' &mdash; ' + emptyNote(f) + '.</p>';
+    return head + statHtml(f) + '</p>' + kept.map((hk, n) => hunkHtml(hk, n + 1)).join('');
   }
 
   const reasonHtml = f => {
@@ -234,19 +325,86 @@
       (r ? esc(r) : '<em>No reason given</em>') + '</span></p>';
   };
 
-  function reportHtml(files) {
+  const fmtDate = v => {
+    if (!v) return '';
+    const d = new Date(v + 'T00:00:00');
+    return isNaN(d) ? v : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
+  const detailRows = f => [
+    ['Date of change', fmtDate(f.date)], ['Environment changed', f.env], ['Changed by', f.by], ['Reason / Reference', f.ref]
+  ];
+
+  const detailsHtml = form =>
+    sect('Change details') + '<table style="border-collapse:collapse;margin:0 0 8px;font-size:14px;' + H + '">' +
+    detailRows(form).map(([k, v]) => '<tr><th style="' + ST.th + '">' + k + '</th><td style="' + ST.td + '">' + (v ? esc(v) : '&mdash;') + '</td></tr>').join('') + '</table>';
+
+  const sqlHtml = sql => '<pre style="' + ST.sql + '">' + esc(sql) + '</pre>';
+
+  const itemsHtml = (title, rows, label) => sect(title) + (rows.length ? rows.map(r =>
+    '<p style="' + H + 'margin:8px 0 0"><strong>' + esc(r.name || '(unnamed)') + '</strong> &mdash; ' + esc(label(r)) + '</p>' + sqlHtml(r.sql)).join('') : none);
+
+  const listHtml = (title, items) => sect(title) + (items.length
+    ? '<ul style="margin:0 0 8px;padding-left:22px;' + H + '">' + items.map(i => '<li>' + esc(i) + '</li>').join('') + '</ul>' : none);
+
+  const verifyHtml = text => sect('Verification') + (text
+    ? '<p style="' + H + 'margin:0 0 8px;white-space:pre-wrap">' + esc(text) + '</p>' : none);
+
+  const dbLabel = r => r.kind;
+  const spLabel = r => r.kind + ', ' + r.chg.toLowerCase();
+
+  // Sections after the file diffs
+  const restHtml = form =>
+    itemsHtml('Database table changes', form.db, dbLabel) +
+    itemsHtml('Stored procedures & functions', form.sp, spLabel) +
+    listHtml('Config / Environment changes', form.config) +
+    listHtml('Other changes', form.other) +
+    verifyHtml(form.verify);
+
+  function filesHtml(files) {
     files = keptFiles(files);
-    let h = '<div style="' + H + 'font-size:14px">';
-    h += sect('File(s) changed') + '<ul style="margin:0 0 8px;padding-left:22px">' +
-      files.map(f => '<li><strong>' + esc(nm(f)) + '</strong></li>').join('') + '</ul>';
-    h += sect('What changed') + files.map(f => fileDiffHtml(f) + reasonHtml(f)).join('');
-    return h + '</div>';
+    return sect('File(s) changed') + (files.length
+      ? '<ul style="margin:0 0 8px;padding-left:22px;' + H + '">' + files.map(f => '<li><strong>' + esc(nm(f)) + '</strong></li>').join('') + '</ul>' +
+        sect('What changed') + files.map(f => fileDiffHtml(f) + reasonHtml(f)).join('')
+      : none);
   }
 
-  const rowText = r => (r.t === '=' ? ' ' : r.t) + r.text;
+  const reportHtml = L => wrapHtml(detailsHtml(L.form) + filesHtml(L.files) + restHtml(L.form));
 
-  function patchText(files) {
-    return keptFiles(files).filter(f => keptHunks(f).length).map(f => {
+  // ---------- Markdown / patch ----------
+
+  const FENCE = '`' + '`' + '`';
+  const mdSql = (rows, label) => rows.length ? rows.map(r =>
+    '**' + (r.name || '(unnamed)') + '** — ' + label(r) + '\n\n' + FENCE + 'sql\n' + r.sql + '\n' + FENCE).join('\n\n') : '_None_';
+  const mdList = items => items.length ? items.map(i => '- ' + i).join('\n') : '_None_';
+
+  function markdownText(L) {
+    const form = L.form, files = keptFiles(L.files);
+    let md = '## Change details\n\n' + detailRows(form).map(([k, v]) => '- **' + k + ':** ' + (v || '—')).join('\n') + '\n\n';
+    md += '## File(s) changed\n\n';
+    if (!files.length) md += '_None_\n\n';
+    else {
+      md += files.map(f => '- **' + nm(f) + '**').join('\n') + '\n\n## What changed\n\n';
+      files.forEach(f => {
+        const kept = keptHunks(f);
+        md += '**' + nm(f) + '**' + (kept.length ? ' (+' + stat(f, '+') + ' −' + stat(f, '-') + ')' : ' — ' + emptyNote(f)) + '\n\n';
+        kept.forEach((hk, n) => {
+          md += 'Change ' + (n + 1) + ' — before line ' + hk.oldStart + ', after line ' + hk.newStart +
+            '\n\n' + FENCE + 'diff\n' + hk.rows.map(rowText).join('\n') + '\n' + FENCE + '\n\n';
+        });
+        md += '**Reason for change:** ' + (f.reason.trim() || '_No reason given_') + '\n\n';
+      });
+    }
+    md += '## Database table changes\n\n' + mdSql(form.db, dbLabel) + '\n\n';
+    md += '## Stored procedures & functions\n\n' + mdSql(form.sp, spLabel) + '\n\n';
+    md += '## Config / Environment changes\n\n' + mdList(form.config) + '\n\n';
+    md += '## Other changes\n\n' + mdList(form.other) + '\n\n';
+    md += '## Verification\n\n' + (form.verify || '_None_') + '\n';
+    return md;
+  }
+
+  function patchText(L) {
+    return keptFiles(L.files).filter(f => keptHunks(f).length).map(f => {
       const lines = ['--- a/' + nm(f), '+++ b/' + nm(f)];
       keptHunks(f).forEach(hk => {
         lines.push('@@ -' + hk.oldStart + ',' + hk.oldLen + ' +' + hk.newStart + ',' + hk.newLen + ' @@');
@@ -256,25 +414,12 @@
     }).join('\n') + '\n';
   }
 
-  function markdownText(files) {
-    files = keptFiles(files);
-    let md = '## File(s) changed\n\n' + files.map(f => '- **' + nm(f) + '**').join('\n') + '\n\n## What changed\n\n';
-    files.forEach(f => {
-      const kept = keptHunks(f);
-      md += '**' + nm(f) + '**' + (kept.length ? ' (+' + stat(f, '+') + ' \u2212' + stat(f, '-') + ')' : ' \u2014 ' + emptyNote(f)) + '\n\n';
-      kept.forEach((hk, n) => {
-        md += 'Change ' + (n + 1) + ' \u2014 before line ' + hk.oldStart + ', after line ' + hk.newStart +
-          '\n\n```diff\n' + hk.rows.map(rowText).join('\n') + '\n```\n\n';
-      });
-      md += '**Reason for change:** ' + (f.reason.trim() || '_No reason given_') + '\n\n';
-    });
-    return md + '\n';
-  }
+  // ---------- form handling ----------
 
   const filesEl = $('files');
 
-  function addFile() {
-    const card = $('tpl').content.firstElementChild.cloneNode(true);
+  function addFileCard() {
+    const card = $('tpl-file').content.firstElementChild.cloneNode(true);
     const q = c => card.querySelector(c);
     const count = () => {
       q('.ca').textContent = split(q('.a').value).length + ' lines';
@@ -284,27 +429,50 @@
     q('.b').addEventListener('input', count);
     count();
     filesEl.appendChild(card);
-    return card;
   }
 
-  // One card per non-empty line in the file list; cards map to lines by position so typed content survives renames.
+  // One card per non-empty line in the file list; cards map to lines by position so pasted content survives renames.
   function syncCards() {
     const names = $('list').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    while (filesEl.children.length < names.length) addFile();
+    while (filesEl.children.length < names.length) addFileCard();
     while (filesEl.children.length > names.length) filesEl.lastElementChild.remove();
     names.forEach((n, i) => { filesEl.children[i].querySelector('.name').textContent = n; });
+  }
+
+  function addRow(containerId, tplId) {
+    const row = $(tplId).content.firstElementChild.cloneNode(true);
+    row.querySelector('.remove').onclick = () => row.remove();
+    $(containerId).appendChild(row);
+    return row;
+  }
+
+  const lines = id => $(id).value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  function readRows(containerId) {
+    return [...$(containerId).children].map(row => {
+      const v = c => (row.querySelector(c) || { value: '' }).value;
+      return { name: v('.nm').trim(), kind: v('.kind'), chg: v('.chg'), sql: v('.sql').replace(/\s+$/, '') };
+    }).filter(r => r.name || r.sql.trim());
+  }
+
+  function readForm() {
+    return {
+      date: $('d-date').value, env: $('d-env').value.trim(), by: $('d-by').value.trim(), ref: $('d-ref').value.trim(),
+      db: readRows('db'), sp: readRows('sp'),
+      config: lines('config'), other: lines('other'), verify: $('verify').value.trim()
+    };
   }
 
   function generate() {
     const ws = $('ws').checked;
     const prev = {};
-    (last || []).forEach(f => { prev[f.name] = f.reason; });
-    last = [...filesEl.children].map(card => {
+    (last ? last.files : []).forEach(f => { prev[f.name] = f.reason; });
+    const files = [...filesEl.children].map(card => {
       const q = c => card.querySelector(c).value;
       const name = card.querySelector('.name').textContent;
-      const rows = diffLines(split(q('.a')), split(q('.b')), ws);
-      return { name, reason: prev[name] || '', removed: false, hunks: buildHunks(rows) };
+      return { name, reason: prev[name] || '', removed: false, hunks: buildHunks(diffLines(split(q('.a')), split(q('.b')), ws)) };
     });
+    last = { form: readForm(), files };
     renderPreview();
     $('report-wrap').style.display = 'block';
     $('status').textContent = '';
@@ -317,15 +485,18 @@
     return b;
   }
 
-  // On-screen report: each file's diff blocks (removable) followed by its reason box. Copied output is built separately.
+  // On-screen report. File diffs are interactive (remove blocks / files, type reasons); everything else is static HTML.
   function renderPreview() {
     const root = $('report');
     root.innerHTML = '';
-    const bar = (parent, el) => { const d = document.createElement('div'); d.style.cssText = 'display:flex;gap:10px;align-items:center;margin:8px 0 4px'; d.append(...el); parent.appendChild(d); return d; };
+    const part = html => { const d = document.createElement('div'); d.innerHTML = html; root.appendChild(d); return d; };
+    const bar = (parent, els) => { const d = document.createElement('div'); d.style.cssText = 'display:flex;gap:10px;align-items:center;margin:8px 0 4px'; d.append(...els); parent.appendChild(d); return d; };
     const note = t => { const e = document.createElement('span'); e.style.cssText = 'color:#656d76;font-size:13px'; e.textContent = t; return e; };
     const title = f => { const e = document.createElement('strong'); e.textContent = nm(f); e.style.cssText = 'font-size:15px'; return e; };
 
-    last.forEach(f => {
+    part(wrapHtml(detailsHtml(last.form) + sect('File(s) changed') + (last.files.length ? '' : none)));
+
+    last.files.forEach(f => {
       const sec = document.createElement('div');
       sec.style.cssText = 'margin:0 0 22px;padding-bottom:12px;border-bottom:1px solid #d0d7de';
       if (f.removed) {
@@ -350,13 +521,17 @@
       const lab = document.createElement('div');
       lab.textContent = 'Reason for change'; lab.style.cssText = 'font-weight:600;margin:6px 0 2px';
       const ta = document.createElement('textarea');
-      ta.className = 'reason'; ta.placeholder = 'Why is this change needed?'; ta.value = f.reason;
-      ta.style.cssText = 'height:70px;padding:8px 10px;background:#f6f7f9;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font:14px system-ui,sans-serif;white-space:pre-wrap';
+      ta.placeholder = 'Why is this change needed?'; ta.value = f.reason;
+      ta.style.cssText = 'width:100%;height:70px;padding:8px 10px;background:#f6f7f9;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font:14px system-ui,sans-serif;white-space:pre-wrap';
       ta.addEventListener('input', () => { f.reason = ta.value; });
       sec.append(lab, ta);
       root.appendChild(sec);
     });
+
+    part(wrapHtml(restHtml(last.form)));
   }
+
+  // ---------- copy ----------
 
   function flash(msg) {
     $('status').textContent = msg;
@@ -374,7 +549,6 @@
 
   async function copyRich() {
     if (!last) return;
-    const msg = 'Copied — paste into your change request';
     try {
       await navigator.clipboard.write([new ClipboardItem({
         'text/html': new Blob([reportHtml(last)], { type: 'text/html' }),
@@ -388,15 +562,22 @@
       range.selectNodeContents(tmp); sel.removeAllRanges(); sel.addRange(range);
       document.execCommand('copy'); sel.removeAllRanges(); tmp.remove();
     }
-    flash(msg);
+    flash('Copied — paste into your change request');
   }
 
+  // ---------- wiring ----------
+
+  const today = new Date();
+  $('d-date').value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+
+  $('list').addEventListener('input', syncCards);
+  $('add-db').onclick = () => addRow('db', 'tpl-db').querySelector('.nm').focus();
+  $('add-sp').onclick = () => addRow('sp', 'tpl-sp').querySelector('.nm').focus();
   $('go').onclick = generate;
-  $('clear').onclick = () => { $('list').value = ''; filesEl.innerHTML = ''; syncCards(); $('report-wrap').style.display = 'none'; last = null; };
+  $('clear').onclick = () => { if (confirm('Clear the whole form?')) location.reload(); };
   $('copy-rich').onclick = copyRich;
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
-  $('list').addEventListener('input', syncCards);
   syncCards();
 })();
 </script>
