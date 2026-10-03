@@ -55,7 +55,7 @@
 </head>
 <body>
 <header>
-  <h1>Change Request Form</h1>
+  <h1>Change Request Form <span id="app-ver" style="font-size:12px;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:1px 8px;vertical-align:middle;margin-left:6px"></span></h1>
   <p>Fill in the sections below, click <strong>Generate report</strong>, add the reason for each file under its diff, then download or copy the finished release note. What you type is saved in this browser.</p>
 </header>
 <main>
@@ -128,7 +128,6 @@
     </div>
   </div>
 </main>
-<footer style="max-width:1400px;margin:0 auto;padding:0 16px 24px;color:var(--muted);font-size:12px">Change Request Form <span id="app-ver"></span></footer>
 
 <template id="tpl-file">
   <section class="item">
@@ -172,7 +171,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.1.1'; // tool version: bump when the page changes
+  const VERSION = '1.1.2'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
