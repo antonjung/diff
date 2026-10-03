@@ -55,6 +55,7 @@
 </head>
 <body>
 <header>
+  <button id="clear" style="float:right" title="Discard everything and begin a new change request">Start from scratch</button>
   <h1>Change Request Form <span id="app-ver" style="font-size:12px;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:1px 8px;vertical-align:middle;margin-left:6px"></span></h1>
   <p>Fill in the sections below, click <strong>Generate report</strong>, add the reason for each file under its diff, then download or copy the finished release note. What you type is saved in this browser.</p>
 </header>
@@ -113,7 +114,6 @@
 
   <div class="bar">
     <button class="primary" id="go">Generate report</button>
-    <button id="clear">Clear all</button>
     <label><input type="checkbox" id="ws"> Ignore whitespace changes in file diffs</label>
   </div>
 
@@ -171,7 +171,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.1.4'; // tool version: bump when the page changes
+  const VERSION = '1.1.5'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -738,7 +738,7 @@
   $('add-sp').onclick = () => addRow('sp', 'tpl-sp').querySelector('.nm').focus();
   $('go').onclick = generate;
   $('clear').onclick = () => {
-    if (!confirm('Clear the whole form? This also deletes what is saved in this browser.')) return;
+    if (!confirm('Start from scratch? Everything you have entered, including the copy saved in this browser, will be deleted. This cannot be undone.')) return;
     cleared = true;
     try { localStorage.removeItem(KEY); } catch (e) {}
     location.reload();
