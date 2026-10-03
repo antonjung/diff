@@ -20,7 +20,7 @@
   header p { margin: 0 0 16px; color: var(--muted); }
   .file { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
   .file-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-  .file-head input { flex: 1; width: auto; font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+  .file-head .name { font-family: ui-monospace, Consolas, monospace; }
   .reason { width: 100%; height: 70px; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; font: inherit; white-space: pre-wrap; background: var(--bg); }
   .reason-label { display: block; margin-top: 10px; font-weight: 600; }
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -49,10 +49,13 @@
   <p>Add each changed file, paste its before and after code, give a reason, then generate one report for the change request.</p>
 </header>
 <main>
+  <section class="file">
+    <label class="reason-label" for="list" style="margin-top:0">File(s) changed <small style="font-weight:400;color:var(--muted)">&mdash; one per line</small></label>
+    <textarea id="list" class="reason" style="height:90px;font-family:ui-monospace,Consolas,monospace" spellcheck="false" placeholder="src/app/config.js&#10;src/app/login.js"></textarea>
+  </section>
   <div id="files"></div>
 
   <div class="bar">
-    <button id="add">+ Add file</button>
     <button class="primary" id="go">Generate diff report</button>
     <button id="clear">Clear all</button>
     <label><input type="checkbox" id="ws"> Ignore whitespace changes</label>
@@ -71,10 +74,7 @@
 
 <template id="tpl">
   <section class="file">
-    <div class="file-head">
-      <input type="text" class="name" placeholder="File name, e.g. src/app/config.js" spellcheck="false">
-      <button class="remove" title="Remove this file">Remove</button>
-    </div>
+    <div class="file-head"><strong class="name"></strong></div>
     <div class="panels">
       <div class="panel"><label>Before <small class="ca"></small></label>
         <textarea class="a" spellcheck="false" placeholder="Paste original code here…"></textarea></div>
@@ -267,10 +267,18 @@
     };
     q('.a').addEventListener('input', count);
     q('.b').addEventListener('input', count);
-    q('.remove').onclick = () => { card.remove(); if (!filesEl.children.length) addFile(); };
     count();
     filesEl.appendChild(card);
     return card;
+  }
+
+  // One card per non-empty line in the file list; cards map to lines by position so typed content survives renames.
+  function syncCards() {
+    const names = $('list').value.split(/?
+/).map(l => l.trim()).filter(Boolean);
+    while (filesEl.children.length < names.length) addFile();
+    while (filesEl.children.length > names.length) filesEl.lastElementChild.remove();
+    names.forEach((n, i) => { filesEl.children[i].querySelector('.name').textContent = n; });
   }
 
   function generate() {
@@ -279,7 +287,7 @@
       const q = c => card.querySelector(c).value;
       const rows = diffLines(split(q('.a')), split(q('.b')), ws);
       return {
-        name: q('.name').trim(), reason: q('.reason').trim(), hunks: buildHunks(rows),
+        name: card.querySelector('.name').textContent, reason: q('.reason').trim(), hunks: buildHunks(rows),
         adds: rows.filter(r => r.t === '+').length, dels: rows.filter(r => r.t === '-').length
       };
     });
@@ -320,12 +328,12 @@
   }
 
   $('go').onclick = generate;
-  $('add').onclick = () => addFile().querySelector('.name').focus();
-  $('clear').onclick = () => { filesEl.innerHTML = ''; addFile(); $('report-wrap').style.display = 'none'; last = null; };
+  $('clear').onclick = () => { $('list').value = ''; filesEl.innerHTML = ''; syncCards(); $('report-wrap').style.display = 'none'; last = null; };
   $('copy-rich').onclick = copyRich;
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
-  addFile();
+  $('list').addEventListener('input', syncCards);
+  syncCards();
 })();
 </script>
 </body>
