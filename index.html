@@ -121,6 +121,7 @@
     <div id="report"></div>
     <div id="actions">
       <button class="primary" id="word">Download Word document (.docx)</button>
+      <button id="folder" title="Choose the folder Word documents are saved to">Change save folder</button>
       <button id="copy-rich">Copy for change request</button>
       <button id="copy-md">Copy as Markdown</button>
       <button id="copy-patch">Copy file diffs as unified diff</button>
@@ -171,7 +172,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const VERSION = '1.1.6'; // tool version: bump when the page changes
+  const VERSION = '1.2.0'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -666,17 +667,65 @@
     });
   }
 
+  // The browser cannot be told a path; instead the user picks the folder once (Chrome / Edge), the
+  // handle is remembered in IndexedDB, and later documents are written straight into it.
+  const idb = () => new Promise((res, rej) => {
+    const r = indexedDB.open('change-request-form', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  const idbGet = async k => { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); };
+  const idbSet = async (k, v) => { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); q.onsuccess = () => res(); q.onerror = () => rej(q.error); }); };
+
+  async function saveFolder(forcePick) {
+    if (!window.showDirectoryPicker) return null;
+    let h = forcePick ? null : await idbGet('folder').catch(() => null);
+    if (h) {
+      let perm = await h.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') perm = await h.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') h = null;
+    }
+    if (!h) {
+      h = await window.showDirectoryPicker({ id: 'release-notes', mode: 'readwrite', startIn: 'documents' });
+      await idbSet('folder', h).catch(() => {});
+    }
+    return h;
+  }
+
+  // Change-Request-<date>-<reason/reference>.docx, with characters Windows does not allow removed
+  function docxName(form) {
+    const clean = x => String(x).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '').replace(/\s+/g, '_').replace(/^[_.]+|[_.]+$/g, '').slice(0, 80);
+    const ref = clean(form.ref || '');
+    return 'Change-Request-' + (form.date || 'undated') + (ref ? '-' + ref : '') + '.docx';
+  }
+
   async function downloadWord() {
     if (!last) return;
     if (!window.docx) { flash('Word library failed to load \u2014 check your connection and reload'); return; }
+    let folder = null;
+    try { folder = await saveFolder(false); }
+    catch (e) { if (e.name === 'AbortError') { flash('Save cancelled'); return; } }
     const blob = await window.docx.Packer.toBlob(buildDocx(last));
-    const safe = x => String(x).replace(/[^\w.-]+/g, '_');
+    const name = docxName(last.form);
+    if (folder) {
+      try {
+        const w = await (await folder.getFileHandle(name, { create: true })).createWritable();
+        await w.write(blob); await w.close();
+        flash('Saved ' + name + ' to the "' + folder.name + '" folder');
+        return;
+      } catch (e) { /* fall back to a normal download */ }
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'Change-Request-' + safe(last.form.date || 'undated') + '.docx';
+    a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     flash('Word document downloaded');
+  }
+
+  async function chooseFolder() {
+    try { const h = await saveFolder(true); if (h) flash('Word documents will be saved to the "' + h.name + '" folder'); }
+    catch (e) { if (e.name !== 'AbortError') flash('Saving to a chosen folder is not supported in this browser'); }
   }
 
   // ---------- autosave (this browser only) ----------
@@ -744,6 +793,8 @@
     location.reload();
   };
   $('word').onclick = downloadWord;
+  $('folder').onclick = chooseFolder;
+  if (!window.showDirectoryPicker) $('folder').style.display = 'none';
   $('copy-rich').onclick = copyRich;
   $('copy-md').onclick = () => last && copyText(markdownText(last));
   $('copy-patch').onclick = () => last && copyText(patchText(last));
