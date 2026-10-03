@@ -228,15 +228,18 @@
     return h + statHtml(f) + '</p>' + kept.map((hk, n) => hunkHtml(hk, n + 1)).join('');
   }
 
+  const reasonHtml = f => {
+    const r = f.reason.trim();
+    return '<p style="' + H + 'margin:0 0 18px"><strong>Reason for change:</strong> <span style="white-space:pre-wrap">' +
+      (r ? esc(r) : '<em>No reason given</em>') + '</span></p>';
+  };
+
   function reportHtml(files) {
     files = keptFiles(files);
     let h = '<div style="' + H + 'font-size:14px">';
-    h += sect('File(s) changed') + files.map(f => {
-      const r = f.reason.trim();
-      return '<p style="margin:0 0 4px"><strong>' + esc(nm(f)) + '</strong></p>' +
-        '<p style="margin:0 0 12px 16px;white-space:pre-wrap">' + (r ? esc(r) : '<em>No reason given</em>') + '</p>';
-    }).join('');
-    h += sect('What changed') + files.map(fileDiffHtml).join('');
+    h += sect('File(s) changed') + '<ul style="margin:0 0 8px;padding-left:22px">' +
+      files.map(f => '<li><strong>' + esc(nm(f)) + '</strong></li>').join('') + '</ul>';
+    h += sect('What changed') + files.map(f => fileDiffHtml(f) + reasonHtml(f)).join('');
     return h + '</div>';
   }
 
@@ -255,8 +258,7 @@
 
   function markdownText(files) {
     files = keptFiles(files);
-    let md = '## File(s) changed\n\n' + files.map(f => '**' + nm(f) + '**\n\n' + (f.reason.trim() || '_No reason given_')).join('\n\n') +
-      '\n\n## What changed\n\n';
+    let md = '## File(s) changed\n\n' + files.map(f => '- **' + nm(f) + '**').join('\n') + '\n\n## What changed\n\n';
     files.forEach(f => {
       const kept = keptHunks(f);
       md += '**' + nm(f) + '**' + (kept.length ? ' (+' + stat(f, '+') + ' \u2212' + stat(f, '-') + ')' : ' \u2014 ' + emptyNote(f)) + '\n\n';
@@ -264,6 +266,7 @@
         md += 'Change ' + (n + 1) + ' \u2014 before line ' + hk.oldStart + ', after line ' + hk.newStart +
           '\n\n```diff\n' + hk.rows.map(rowText).join('\n') + '\n```\n\n';
       });
+      md += '**Reason for change:** ' + (f.reason.trim() || '_No reason given_') + '\n\n';
     });
     return md + '\n';
   }
