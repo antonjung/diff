@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Change Request Form</title>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #fff; --text: #1f2328; --muted: #656d76; --border: #d0d7de;
@@ -63,6 +64,7 @@
     <h2>Change details</h2>
     <div class="grid">
       <label class="field"><span>Date of change</span><input type="date" id="d-date"></label>
+      <label class="field"><span>Version</span><input type="text" id="d-ver" placeholder="e.g. 1.0" autocomplete="off"></label>
       <label class="field"><span>Environment changed</span>
         <input type="text" id="d-env" list="envs" placeholder="Live / Production" autocomplete="off">
         <datalist id="envs"><option value="Live"><option value="Production"></datalist></label>
@@ -119,7 +121,7 @@
   <div id="report-wrap">
     <div id="report"></div>
     <div id="actions">
-      <button class="primary" id="word">Download Word document</button>
+      <button class="primary" id="word">Download Word document (.docx)</button>
       <button id="copy-rich">Copy for change request</button>
       <button id="copy-md">Copy as Markdown</button>
       <button id="copy-patch">Copy file diffs as unified diff</button>
@@ -127,6 +129,7 @@
     </div>
   </div>
 </main>
+<footer style="max-width:1400px;margin:0 auto;padding:0 16px 24px;color:var(--muted);font-size:12px">Change Request Form <span id="app-ver"></span></footer>
 
 <template id="tpl-file">
   <section class="item">
@@ -170,6 +173,7 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
+  const VERSION = '1.1.0'; // tool version: bump when the page changes
   const CONTEXT = 3;
   let last = null; // { form, files: [{ name, reason, removed, hunks }] }
   const reasonMemo = {}; // file name -> reason typed under its diff
@@ -334,7 +338,7 @@
   };
 
   const detailRows = f => [
-    ['Date of change', fmtDate(f.date)], ['Environment changed', f.env], ['Changed by', f.by], ['Reason / Reference', f.ref]
+    ['Date of change', fmtDate(f.date)], ['Version', f.ver], ['Environment changed', f.env], ['Changed by', f.by], ['Reason / Reference', f.ref]
   ];
 
   const detailsHtml = form =>
@@ -459,7 +463,7 @@
 
   function readForm() {
     return {
-      date: $('d-date').value, env: $('d-env').value.trim(), by: $('d-by').value.trim(), ref: $('d-ref').value.trim(),
+      date: $('d-date').value, ver: $('d-ver').value.trim(), env: $('d-env').value.trim(), by: $('d-by').value.trim(), ref: $('d-ref').value.trim(),
       db: readRows('db'), sp: readRows('sp'),
       config: lines('config'), other: lines('other'), verify: $('verify').value.trim()
     };
@@ -565,16 +569,113 @@
     flash('Copied — paste into your change request');
   }
 
-  // ---------- Word export ----------
-  // Word opens HTML saved as .doc and keeps the inline-styled tables, colours and code blocks.
-  function downloadWord() {
+  // ---------- Word export (.docx) ----------
+
+  function buildDocx(L) {
+    const { Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle,
+      Footer, PageNumber, AlignmentType, HeadingLevel } = window.docx;
+    const form = L.form, files = keptFiles(L.files);
+    const MONO = 'Consolas', W = 9026;
+    const edge = { style: BorderStyle.SINGLE, size: 4, color: 'D0D7DE' };
+    const borders = { top: edge, bottom: edge, left: edge, right: edge };
+    const fill = f => f ? { type: ShadingType.CLEAR, color: 'auto', fill: f } : undefined;
+    const run = (text, o) => new TextRun({ text, ...(o || {}) });
+    const para = (kids, o) => new Paragraph({ children: kids, spacing: { after: 100 }, ...(o || {}) });
+    const textRuns = (text, o) => String(text).split('\n').map((l, i) => run(l, { ...(o || {}), break: i ? 1 : 0 }));
+    const h1 = t => new Paragraph({ text: t, heading: HeadingLevel.HEADING_1, spacing: { before: 320, after: 120 } });
+    const gap = () => new Paragraph({ spacing: { after: 60 } });
+    const cell = (kids, width, o) => new TableCell({
+      children: kids, width: { size: width, type: WidthType.DXA }, borders,
+      margins: { top: 30, bottom: 30, left: 80, right: 80 }, shading: fill(o && o.fill), columnSpan: o && o.span
+    });
+    const table = (rows, cols) => new Table({ rows, columnWidths: cols, width: { size: cols.reduce((a, b) => a + b, 0), type: WidthType.DXA } });
+    const code = t => String(t).replace(/\t/g, '    ');
+
+    const out = [];
+    out.push(new Paragraph({ text: 'Change Request', heading: HeadingLevel.TITLE, spacing: { after: 160 } }));
+
+    out.push(h1('Change details'));
+    out.push(table(detailRows(form).map(([k, v]) => new TableRow({ children: [
+      cell([para([run(k, { bold: true })], { spacing: { after: 0 } })], 2600, { fill: 'F6F8FA' }),
+      cell([para([run(v || '\u2014')], { spacing: { after: 0 } })], W - 2600)
+    ] })), [2600, W - 2600]));
+
+    out.push(h1('File(s) changed'));
+    if (!files.length) out.push(para([run('None', { italics: true })]));
+    else {
+      files.forEach(f => out.push(para([run(nm(f), { bold: true })], { bullet: { level: 0 }, spacing: { after: 40 } })));
+      out.push(h1('What changed'));
+      files.forEach(f => {
+        const kept = keptHunks(f);
+        out.push(para([run(nm(f), { bold: true }), run(kept.length ? '  +' + stat(f, '+') + ' \u2212' + stat(f, '-') : '  \u2014 ' + emptyNote(f), { color: '656D76' })],
+          { keepNext: true, spacing: { before: 160, after: 80 } }));
+        kept.forEach((hk, n) => {
+          const cols = [650, 650, 400, W - 1700];
+          const rows = [new TableRow({ children: [cell([para([run('Change ' + (n + 1) + ' \u2014 before line ' + hk.oldStart + ', after line ' + hk.newStart,
+            { color: '0550AE', size: 18 })], { spacing: { after: 0 } })], W, { fill: 'DDF4FF', span: 4 })] })];
+          hk.rows.forEach(r => {
+            const bg = r.t === '-' ? 'FFEBE9' : r.t === '+' ? 'DAFBE1' : null;
+            const hl = r.t === '-' ? 'FF8182' : '4AC26B';
+            const t = code(r.text), kids = [];
+            if (r.hl && r.hl[0] !== r.hl[1]) {
+              kids.push(run(t.slice(0, r.hl[0]), { font: MONO, size: 18 }));
+              kids.push(run(t.slice(r.hl[0], r.hl[1]), { font: MONO, size: 18, shading: fill(hl) }));
+              kids.push(run(t.slice(r.hl[1]), { font: MONO, size: 18 }));
+            } else kids.push(run(t, { font: MONO, size: 18 }));
+            const small = (x, o) => para([run(x, { font: MONO, size: 18, color: '656D76', ...(o || {}) })], { alignment: AlignmentType.RIGHT, spacing: { after: 0 } });
+            rows.push(new TableRow({ cantSplit: true, children: [
+              cell([small(r.oldNo || '')], cols[0], { fill: bg }), cell([small(r.newNo || '')], cols[1], { fill: bg }),
+              cell([small(r.t === '=' ? '' : r.t === '-' ? '\u2212' : '+', { bold: true, color: r.t === '-' ? 'CF222E' : '1A7F37' })], cols[2], { fill: bg }),
+              cell([para(kids, { spacing: { after: 0 } })], cols[3], { fill: bg })
+            ] }));
+          });
+          out.push(table(rows, cols), gap());
+        });
+        out.push(para([run('Reason for change: ', { bold: true }), ...(f.reason.trim() ? textRuns(f.reason.trim()) : [run('No reason given', { italics: true })])],
+          { spacing: { after: 240 } }));
+      });
+    }
+
+    const sqlBox = sql => table([new TableRow({ children: [cell(String(sql).split('\n').map(l =>
+      para([run(code(l), { font: MONO, size: 18 })], { spacing: { after: 0 } })), W, { fill: 'F6F8FA' })] })], [W]);
+    const sqlSection = (title, rows, label) => {
+      out.push(h1(title));
+      if (!rows.length) return out.push(para([run('None', { italics: true })]));
+      rows.forEach(r => out.push(para([run(r.name || '(unnamed)', { bold: true }), run(' \u2014 ' + label(r))], { keepNext: true, spacing: { before: 120, after: 60 } }), sqlBox(r.sql), gap()));
+    };
+    const listSection = (title, items) => {
+      out.push(h1(title));
+      if (!items.length) out.push(para([run('None', { italics: true })]));
+      else items.forEach(i => out.push(para([run(i)], { bullet: { level: 0 }, spacing: { after: 40 } })));
+    };
+    sqlSection('Database table changes', form.db, dbLabel);
+    sqlSection('Stored procedures & functions', form.sp, spLabel);
+    listSection('Config / Environment changes', form.config);
+    listSection('Other changes', form.other);
+    out.push(h1('Verification'));
+    out.push(form.verify ? para(textRuns(form.verify)) : para([run('None', { italics: true })]));
+
+    return new Document({
+      title: 'Change Request' + (form.ver ? ' v' + form.ver : ''),
+      styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
+      sections: [{
+        footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [
+          run('Change Request Form v' + VERSION + ' \u2014 page ', { size: 16, color: '656D76' }),
+          new TextRun({ children: [PageNumber.CURRENT], size: 16, color: '656D76' })
+        ] })] }) },
+        children: out
+      }]
+    });
+  }
+
+  async function downloadWord() {
     if (!last) return;
-    const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta charset="utf-8"><title>Change Request</title></head><body>' +
-      '<h1 style="' + H + 'font-size:24px">Change Request</h1>' + reportHtml(last) + '</body></html>';
+    if (!window.docx) { flash('Word library failed to load \u2014 check your connection and reload'); return; }
+    const blob = await window.docx.Packer.toBlob(buildDocx(last));
+    const safe = x => String(x).replace(/[^\w.-]+/g, '_');
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['\ufeff', html], { type: 'application/msword' }));
-    a.download = 'Change-Request-' + (last.form.date || 'undated') + '.doc';
+    a.href = URL.createObjectURL(blob);
+    a.download = 'Change-Request-' + safe(last.form.date || 'undated') + (last.form.ver ? '-v' + safe(last.form.ver) : '') + '.docx';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     flash('Word document downloaded');
@@ -583,7 +684,7 @@
   // ---------- autosave (this browser only) ----------
 
   const KEY = 'change-request-form-v1';
-  const FIELDS = ['d-date', 'd-env', 'd-by', 'd-ref', 'list', 'config', 'other', 'verify'];
+  const FIELDS = ['d-date', 'd-ver', 'd-env', 'd-by', 'd-ref', 'list', 'config', 'other', 'verify'];
   let cleared = false, saveTimer;
 
   const rowState = (id, cls) => [...$(id).children].map(r => {
@@ -633,6 +734,7 @@
   const today = new Date();
   $('d-date').value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
 
+  $('app-ver').textContent = 'v' + VERSION;
   $('list').addEventListener('input', syncCards);
   $('add-db').onclick = () => addRow('db', 'tpl-db').querySelector('.nm').focus();
   $('add-sp').onclick = () => addRow('sp', 'tpl-sp').querySelector('.nm').focus();
